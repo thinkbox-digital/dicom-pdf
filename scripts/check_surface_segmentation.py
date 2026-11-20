@@ -114,7 +114,7 @@ def check_mesh(page, entry, original, image_pdf):
     finally:
         page.keyboard.up('Shift')
     panned = scene_pixels(page, capture(page, canvas))
-    # Headless pointer movement can coalesce. Check direction and similar area.
+    # The interactor can skip the first move after a pause in headless runs.
     shift = panned['centerX'] - initial['centerX']
     assert shift > 10, f'Shift + drag moved the mesh {shift:.1f} pixels right'
     assert abs(panned['foreground'] - foreground) < foreground * 0.1, 'Pan changed the mesh area'
