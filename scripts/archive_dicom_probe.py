@@ -2,9 +2,13 @@
 """Bounded subprocess: independent pydicom evidence, never pixel decoding or logs."""
 import json
 import logging
+import os
 import sys
 import warnings
 from pathlib import Path
+
+
+MAX_RESULT_BYTES = 16 * 1024**2
 
 
 def probe(path):
@@ -69,10 +73,51 @@ def probe(path):
             'digitalSignaturesPresent': signed,'nativePixelStructure':native_structure(dataset,Path(path).stat().st_size)}
 
 
-if __name__ == '__main__':
+def write_probe(path, output):
+    import resource
+
+    # Bound the output on disk even if the JSON cannot be returned to the caller.
+    _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+    ceiling = MAX_RESULT_BYTES if hard == resource.RLIM_INFINITY else min(hard, MAX_RESULT_BYTES)
+    resource.setrlimit(resource.RLIMIT_FSIZE, (ceiling, hard))
     try:
-        result = probe(sys.argv[1])
-    except BaseException:
+        result = probe(path)
+    except Exception:
         result = {'status': 'UNREADABLE', 'fields': {}, 'references': [],
                   'digitalSignaturesPresent': None}
-    print(json.dumps(result, sort_keys=True))
+    json.dump(result, output, sort_keys=True)
+    output.write('\n')
+    output.flush()
+
+
+def serve(directory):
+    # This dedicated Linux interpreter never parses an input file itself. A
+    # fresh child inherits the imports and receives its own CPU/memory limits.
+    import pydicom
+    import archive_native_structure
+
+    if len(list(Path('/proc/self/task').iterdir())) != 1:
+        return 1
+    source = directory / 'source.dcm'
+    result = directory / 'result.json'
+    os.write(sys.stdout.fileno(), b'+')
+    while os.read(sys.stdin.fileno(), 1) == b'?':
+        pid = os.fork()
+        if pid == 0:
+            try:
+                os.close(sys.stdin.fileno())
+                os.close(sys.stdout.fileno())
+                with result.open('x', encoding='utf-8') as output:
+                    write_probe(source, output)
+                os._exit(0)
+            except BaseException:
+                os._exit(1)
+        _, status = os.waitpid(pid, 0)
+        os.write(sys.stdout.fileno(), b'+' if status == 0 else b'-')
+    return 0
+
+
+if __name__ == '__main__':
+    if sys.argv[1] == '--serve':
+        sys.exit(serve(Path(sys.argv[2])))
+    write_probe(Path(sys.argv[1]), sys.stdout)

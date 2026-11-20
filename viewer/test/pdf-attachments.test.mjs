@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {attachmentBytes,openPdfAttachments} from '../pdf-attachments.mjs';
+import {attachmentBytes,openPdfAttachments,recordedAttachmentDigest} from '../pdf-attachments.mjs';
+
+test('modern originals require their own checksum and missing legacy checksums stay unchecked',()=>{
+  const file={filename:'image.dcm'},hash='ab'.repeat(32);
+  const manifest={schemaVersion:2,artifactSha256:{'image.dcm':hash}};
+  assert.throws(()=>recordedAttachmentDigest(manifest,file,{}),/SHA-256/);
+  assert.throws(()=>recordedAttachmentDigest(manifest,file,{sha256:'invalid'}),/SHA-256/);
+  assert.equal(recordedAttachmentDigest(manifest,file,{sha256:hash}),hash);
+  assert.equal(recordedAttachmentDigest({schemaVersion:1},file,{}),undefined);
+});
 
 function indexedPdf(index,read) {
   return {_transport:{messageHandler:{async sendWithPromise(method,args){

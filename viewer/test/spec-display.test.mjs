@@ -4,6 +4,7 @@ import {decodeDicom,applyPreviewDisplay} from '../native-dicom.mjs';
 import {createDecoderWorkerRuntime} from '../dicom-worker.mjs';
 import {createWindowRenderer} from '../cpu-window-renderer.mjs';
 import {thumbnailPixels} from '../view-controls.mjs';
+import {buildStoredVoiLut} from '../voi-window.mjs';
 import {PARAMETRIC_MAP_SOP} from '../parametric-map.mjs';
 
 const concat=(...parts)=>Buffer.concat(parts.map(part=>Buffer.from(part)));
@@ -128,6 +129,15 @@ test('new padding recipe verifies source interval, policy and derived window',()
   for(const overrides of [{pixelPaddingMin:'1'},{pixelPaddingMax:'10'},{paddingPolicy:'include'},{windowWidth:'200'},{windowCenter:'0'}])
     assert.throws(()=>decodeDicom(bytes,'test:wrong-padding-recipe',preview(overrides)),/padding|Padding/);
   assert.throws(()=>decodeDicom(dicom({padding:0,center:128,width:256}),'test:not-auto',preview()),/source windowing/);
+});
+test('recorded automatic previews accept a single source zero window',()=>{
+  const bytes=dicom({padding:0,center:0,width:0});
+  const image=decodeDicom(bytes,'test:recorded-padding',preview());
+  assert.equal(image.image.windowCenter,150.5);
+  assert.equal(image.sourceDisplay.zeroWindowFallback,true);
+  const noPadding=dicom({center:0,width:0});
+  const automatic=preview({windowMethod:'auto-min-max-v1',windowCenter:'100.5',windowWidth:'201'});
+  assert.equal(decodeDicom(noPadding,'test:zero-window',automatic).image.windowWidth,201);
 });
 test('legacy automatic recipes preserve recorded all-padding windows and historical square geometry',()=>{
   const bytes=dicom({pixels:[0,0,0,0],padding:0,extra:[['00280030','DS',text('2\\1')]]});
@@ -305,6 +315,37 @@ test('Modality LUT decodes packed and word-aligned 8-bit entries in both byte or
       const {image}=decodeDicom(dicom({little,extra:[['00283000','SQ',lut]]}),'test:modality-lut-8');
       assert.deepEqual([...image.modalityLut.values],[0,160,255]);
     }
+  }
+});
+
+test('sampled image Presentation LUT uses the full stored range or the explicit VOI window',()=>{
+  const samples=[64,96,160,192];
+  for(const little of [true,false]){
+    const words=values=>concat(...values.map(value=>integer(value,false,little)));
+    const lut=item([['00283002','US',words([4,0,12])],['00283006','US',words([32,1536,3072,4095])]],little);
+    for(const [voi,expected] of [[{},[96,96,191,191]],[{center:128,width:128},[2,96,191,255]]]){
+      const bytes=dicom({pixels:samples,stored:8,photo:'MONOCHROME1',little,extra:[['20500010','SQ',lut]],...voi});
+      const original=bytes.slice(),decoded=decodeDicom(bytes,'test:presentation-lut'),{image}=decoded;
+      const window={center:image.windowCenter,width:image.windowWidth,function:image.voiLUTFunction};
+      const display=buildStoredVoiLut(image,window),inverted=buildStoredVoiLut(image,window,{invert:true});
+      assert.equal(image.invert,false);
+      assert.deepEqual([...image.getPixelData()],samples);
+      assert.deepEqual(bytes,original);
+      assert.deepEqual(samples.map(sample=>display.values[sample+display.offset]),expected);
+      assert.deepEqual(samples.map(sample=>inverted.values[sample+inverted.offset]),expected.map(gray=>255-gray));
+      assert.deepEqual([...thumbnailPixels(decoded).pixels].filter((_,index)=>index%4===0),expected);
+      const renderer=createWindowRenderer(image);
+      assert.equal(typeof image.render,'function');
+      renderer.destroy();
+    }
+  }
+});
+
+test('sampled image Presentation LUT rejects invalid descriptors and entry lengths',()=>{
+  const words=values=>concat(...values.map(value=>integer(value)));
+  for(const [descriptor,entries] of [[[4,1,12],[32,1536,3072,4095]],[[4,0,7],[0,16,32,64]],[[5,0,12],[32,1536,3072,4095]]]){
+    const lut=item([['00283002','US',words(descriptor)],['00283006','US',words(entries)]]);
+    assert.throws(()=>decodeDicom(dicom({extra:[['20500010','SQ',lut]]}),'test:invalid-presentation-lut'),/Invalid Presentation LUT/);
   }
 });
 

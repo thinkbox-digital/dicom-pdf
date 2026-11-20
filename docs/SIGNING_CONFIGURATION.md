@@ -90,7 +90,7 @@ These roles are separate:
 | `tsaUrl` | The RFC 3161 service's HTTP or HTTPS URL. No URL credentials, query, fragment or redirect is supported. |
 | `tsaPolicyOid` | Optional TSA policy OID; the response must match it when supplied. |
 | `protection` | `CMS_AND_PDF`, `CMS_AND_PDF_TIMESTAMPED`, or `PADES_B_LTA`. |
-| `verapdf` | CLI path to the veraPDF executable. The desktop uses its fixed local installation automatically. |
+| `verapdf` | Optional path to the veraPDF executable, relative to this configuration file or absolute. The desktop and CLI otherwise use `VERAPDF`, then `verapdf` on PATH. |
 | `verificationTime` | Optional ISO-8601 reference time for explicit verification. Creation checks use the current creation clock, including after long conversions. This setting is not evidence of a trusted timestamp. |
 
 To explicitly use the machine's installed CA bundle, set:
@@ -225,9 +225,9 @@ also requires the configured signing key and password. Without C2PA, B-LTA renew
 does not require the institution's private key.
 
 ```sh
-java -jar dist/dicom-pdf-0.19.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/location/signing.json
-java -jar dist/dicom-pdf-0.19.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/location/signing.json
-java -jar dist/dicom-pdf-0.19.0.jar verify-security --input out/example-renewed.pdf --security-config /secure/location/verification.json --output target/lta-report.json
+java -jar dist/dicom-pdf-0.23.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/location/signing.json
+java -jar dist/dicom-pdf-0.23.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/location/signing.json
+java -jar dist/dicom-pdf-0.23.0.jar verify-security --input out/example-renewed.pdf --security-config /secure/location/verification.json --output target/lta-report.json
 ```
 
 For verification, omit `pkcs12` and `passphraseFile`; keep the expected protection,

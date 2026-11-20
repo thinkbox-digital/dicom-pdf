@@ -35,9 +35,53 @@ class SpecDisplayTest {
         a.setBytes(Tag.PixelData,VR.OW,encoded.array()); return a;
     }
     static byte[] encode(Attributes a)throws Exception {
+        return encode(a,UID.ExplicitVRLittleEndian);
+    }
+    private static byte[] encode(Attributes a,String syntax)throws Exception {
         var bytes=new ByteArrayOutputStream();
-        try(var out=new DicomOutputStream(bytes,UID.ExplicitVRLittleEndian)){out.writeDataset(a.createFileMetaInformation(UID.ExplicitVRLittleEndian),a);}
+        try(var out=new DicomOutputStream(bytes,UID.ExplicitVRLittleEndian)){
+            out.writeDataset(a.createFileMetaInformation(syntax),a);
+        }
         return bytes.toByteArray();
+    }
+    @Test void deflatedPaddingReopensTheFrameAndPreservesHistoricalDiagnostics()throws Exception {
+        var a=phantom(true,-100,-50,10,80);
+        a.setInt(Tag.PixelPaddingValue,VR.SS,-100);
+        var nativeImage=DicomInput.inspect(encode(a));
+        byte[] deflated=encode(a,UID.DeflatedExplicitVRLittleEndian);
+        var result=DicomInput.inspect(deflated);
+        assertNotNull(result.image(),result.reason());
+        assertEquals(nativeImage.displayAdjustments(),result.displayAdjustments());
+        assertEquals(DicomInput.previewSha256(nativeImage.image()),DicomInput.previewSha256(result.image()));
+        assertNull(DicomInput.inspectForPreview(deflated,1,Map.of(),true,true,false).image());
+    }
+    @Test void zeroPlaceholderUsesOnlyNonPaddingPixelsAndKeepsLegacyRejection()throws Exception {
+        var a=phantom(false,0,0,100,200);
+        a.setInt(Tag.PixelPaddingValue,VR.US,0);
+        var baseline=DicomInput.inspect(encode(a));
+        a.setString(Tag.WindowCenter,VR.DS,"-0.0");
+        a.setString(Tag.WindowWidth,VR.DS,"+0E+3");
+        byte[] encoded=encode(a);
+        var result=DicomInput.inspect(encoded);
+        assertNotNull(result.image(),result.reason());
+        assertEquals(baseline.displayAdjustments(),result.displayAdjustments());
+        assertEquals(DicomInput.previewSha256(baseline.image()),DicomInput.previewSha256(result.image()));
+        assertNull(DicomInput.inspectForPreview(encoded,1,Map.of(),true,true,false).image());
+        a.setString(Tag.WindowWidth,VR.DS,"0","5");
+        assertNull(DicomInput.inspect(encode(a)).image(),"Multiple windows are not a zero placeholder");
+        a.setString(Tag.WindowWidth,VR.DS,"0");
+        a.setString(Tag.WindowCenter,VR.DS,"1e-60");
+        assertNull(DicomInput.inspect(encode(a)).image(),"Underflow to zero is not a zero placeholder");
+        a.setString(Tag.WindowCenter,VR.DS,"0");
+        a.setString(Tag.VOILUTFunction,VR.CS,"LINEAR_EXACT");
+        assertNull(DicomInput.inspect(encode(a)).image());
+        a.remove(Tag.VOILUTFunction);
+        var shared=a.newSequence(Tag.SharedFunctionalGroupsSequence,1);
+        var group=new Attributes();shared.add(group);
+        var window=new Attributes();group.newSequence(Tag.FrameVOILUTSequence,1).add(window);
+        window.setString(Tag.WindowCenter,VR.DS,"0");
+        window.setString(Tag.WindowWidth,VR.DS,"0");
+        assertNull(DicomInput.inspect(encode(a)).image(),"Functional group windows are not placeholders");
     }
     @Test void excludesSignedStoredPaddingRangeBeforeNegativeRescale()throws Exception {
         var a=phantom(true,-2048,-1025,10,20);a.setInt(Tag.PixelPaddingValue,VR.SS,-2048);a.setInt(Tag.PixelPaddingRangeLimit,VR.SS,-1025);

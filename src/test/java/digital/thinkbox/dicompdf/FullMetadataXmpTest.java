@@ -105,6 +105,13 @@ class FullMetadataXmpTest {
         }
         assertEquals("PASS",PackageTools.verify(older,source.getParent(),null).metadataAccuracy().status());
     }
+    @Test void streamingXmpPreservesSupplementaryCharactersAndXmlDelimiters()throws Exception {
+        String json=JSON.toJson(Map.of("value","x".repeat(8179)+"🌈 ]]> & < ü "+"𐐀".repeat(5000)));
+        try(var pdf=new PDDocument()){
+            PdfMetadata.apply(pdf,"{\"profile\":\"d\",\"profileVersion\":\"2\",\"sourceRole\":\"fixture\"}",json.getBytes(StandardCharsets.UTF_8));
+            assertEquals(json,property(xmp(pdf),"metadataJson"));
+        }
+    }
     @Test void allPixelPayloadFamiliesStayExplicitlyOmitted()throws Exception{
         var attrs=new Attributes();attrs.setString(Tag.SOPClassUID,VR.UI,UID.SecondaryCaptureImageStorage);attrs.setString(Tag.SOPInstanceUID,VR.UI,"2.25.202611150002");
         attrs.setBytes(Tag.PixelData,VR.OB,new byte[8]);attrs.setBytes(Tag.FloatPixelData,VR.OF,new byte[8]);attrs.setBytes(Tag.DoubleFloatPixelData,VR.OD,new byte[16]);

@@ -30,6 +30,22 @@ final class DicomMetadataInventory {
     private static final class MetadataLimit extends IllegalArgumentException {
         MetadataLimit(String message) { super(message); }
     }
+    // Constant field names, separators and surrounding quotes written by the configured Gson.
+    private static final int EMPTY_ELEMENT_BYTES=JSON.toJson(new Element("","","","","","")).length();
+    private static long jsonStringBytes(String value){
+        if(value==null)return 2; // "null" replaces a pair of quotes already counted above.
+        long bytes=0;
+        for(int i=0;i<value.length();i++){
+            char c=value.charAt(i);
+            if(c=='"' || c=='\\' || c=='\t' || c=='\r' || c=='\n' || c=='\b' || c=='\f')bytes+=2;
+            else if(c<32 || c=='\u2028' || c=='\u2029')bytes+=6;
+            else if(c<128)bytes++;
+            else if(c<2048)bytes+=2;
+            else if(Character.isHighSurrogate(c) && i+1<value.length() && Character.isLowSurrogate(value.charAt(i+1))){bytes+=4;i++;}
+            else bytes+=Character.isSurrogate(c)?1:3;
+        }
+        return bytes;
+    }
     private static final class Budget {
         long used;
         void base64(long length) {
@@ -39,7 +55,8 @@ final class DicomMetadataInventory {
         void add(Element element) {
             if (element.value()!=null && element.value().length()>MAX_SIDECAR_BYTES-used)
                 throw new MetadataLimit("Non-pixel metadata needs more available Java heap");
-            used += JSON.toJson(element).getBytes(StandardCharsets.UTF_8).length;
+            used+=EMPTY_ELEMENT_BYTES+jsonStringBytes(element.path())+jsonStringBytes(element.tag())
+                    +jsonStringBytes(element.keyword())+jsonStringBytes(element.vr())+jsonStringBytes(element.value())+jsonStringBytes(element.encoding());
             if (used>MAX_SIDECAR_BYTES) throw new MetadataLimit("Non-pixel metadata needs more available Java heap");
         }
     }
@@ -59,33 +76,39 @@ final class DicomMetadataInventory {
 
     static String capturedSha256(List<Manifest.Image> images, Map<String,?> originals, boolean complete) throws Exception {
         var digest = MessageDigest.getInstance("SHA-256");
-        try (var output = new DigestOutputStream(OutputStream.nullOutputStream(), digest);
-             var writer = new JsonWriter(new OutputStreamWriter(output, StandardCharsets.UTF_8))) {
+        writeCaptured(images,originals,complete,new DigestOutputStream(OutputStream.nullOutputStream(),digest));
+        return HexFormat.of().formatHex(digest.digest());
+    }
+    static void writeCaptured(List<Manifest.Image> images,Map<String,?> originals,boolean complete,OutputStream output)throws Exception {
+        try(var writer=new JsonWriter(new BufferedWriter(new OutputStreamWriter(output,StandardCharsets.UTF_8)))){
             writer.beginObject().name("schemaVersion").value(1).name("images").beginArray();
-            for (var image : images) {
-                var captured = captureImage(image.attachment(), image.sourcePath(), originals.get(image.attachment()),
-                        complete ? new Budget() : null);
-                JSON.toJson(captured, Image.class, writer);
+            for(var image:images){
+                var captured=captureImage(image.attachment(),image.sourcePath(),originals.get(image.attachment()),complete?new Budget():null);
+                JSON.toJson(captured,Image.class,writer);
             }
             writer.endArray().endObject();
         }
-        return HexFormat.of().formatHex(digest.digest());
     }
     static byte[] bytes(Inventory inventory) throws IOException {
         var output=new ByteArrayOutputStream();
-        OutputStream bounded=new OutputStream(){
-            int size;
-            @Override public void write(int value)throws IOException{check(1);output.write(value);}
-            @Override public void write(byte[] value,int offset,int length)throws IOException{check(length);output.write(value,offset,length);}
-            void check(int length)throws IOException{if((long)size+length>Runtime.getRuntime().maxMemory()/3)throw new IOException("Metadata serialization needs more available Java heap");size+=length;}
-        };
-        try(var writer=new OutputStreamWriter(bounded,StandardCharsets.UTF_8)) {
+        try(var writer=new OutputStreamWriter(bounded(output,Runtime.getRuntime().maxMemory()/3),StandardCharsets.UTF_8)) {
             JSON.toJson(inventory,writer);writer.flush();
         } catch(JsonIOException error) {
             if(error.getCause() instanceof IOException cause)throw cause;
             throw new IOException("Full DICOM metadata inventory could not be serialized",error);
         }
         return output.toByteArray();
+    }
+    static OutputStream bounded(OutputStream destination,long limit) {
+        return new FilterOutputStream(destination) {
+            long remaining=limit;
+            private void reserve(int length)throws IOException {
+                if(length>remaining)throw new IOException("Metadata inventory exceeds the available package budget");
+                remaining-=length;
+            }
+            @Override public void write(int value)throws IOException{reserve(1);out.write(value);}
+            @Override public void write(byte[] value,int offset,int length)throws IOException{reserve(length);out.write(value,offset,length);}
+        };
     }
     static Image captureImage(String attachment,String sourcePath,Object content) throws Exception {
         return captureImage(attachment,sourcePath,content,new Budget());

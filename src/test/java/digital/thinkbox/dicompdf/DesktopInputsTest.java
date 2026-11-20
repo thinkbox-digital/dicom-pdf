@@ -58,13 +58,13 @@ class DesktopInputsTest {
         Files.write(corrupt,data);
         assertThrows(IOException.class,()->DesktopInputs.prepare(corrupt,root.resolve("crc-stage"),()->false));
     }
-    @Test void desktopRequestNormalizesSingleInputsAndAppliesFixedValidatorWithoutChangingConfig()throws Exception{
+    @Test void desktopRequestResolvesConfiguredValidatorRelativeToOriginalConfig()throws Exception{
         Path source=Files.writeString(root.resolve("image.dcm"),"synthetic");Path config=Files.writeString(root.resolve("config.json"),"{\"protection\":\"CMS_AND_PDF\",\"pkcs12\":\"keys/institution.p12\",\"verapdf\":\"old\"}");
         Path work=Files.createDirectory(root.resolve("work"));
         var prepared=new DesktopRequest(true,source.toString(),root.resolve("archive.pdf").toString(),"",config.toString(),false).prepare(work,()->false);
         var args=prepared.arguments(work.resolve("report.json"));assertFalse(args.contains("--source-role"));assertTrue(Files.isDirectory(Path.of(prepared.input())));
         var rewritten=com.google.gson.JsonParser.parseString(Files.readString(Path.of(prepared.securityConfig()))).getAsJsonObject();
-        assertEquals(DesktopRequest.VERAPDF,rewritten.get("verapdf").getAsString());assertEquals(root.resolve("keys/institution.p12").toString(),rewritten.get("pkcs12").getAsString());
+        assertEquals(root.resolve("old").toString(),rewritten.get("verapdf").getAsString());assertEquals(root.resolve("keys/institution.p12").toString(),rewritten.get("pkcs12").getAsString());
         assertTrue(Files.readString(config).contains("\"old\""));
     }
     @Test void stagingDoesNotBypassCredentialAndPassphraseExclusion()throws Exception{

@@ -2,7 +2,8 @@ import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {advanceViewerVersion} from './build-version.mjs';
+import {planViewerVersion} from './build-version.mjs';
+import {publishViewerBuild} from './build-publication.mjs';
 import {selectivePdfAttachments} from './build-pdf-worker.mjs';
 import {viewerTrustRoots} from './build-trust-policy.mjs';
 import {certificateNetwork,digicertTimestampFallback} from './build-certificate-network.mjs';
@@ -11,7 +12,7 @@ const trustRoots=viewerTrustRoots();
 const network=certificateNetwork();
 const here = path.dirname(fileURLToPath(import.meta.url));
 process.chdir(here);
-const version=advanceViewerVersion(here);
+const {version,files}=planViewerVersion(here);
 const fontData=Object.fromEntries(fs.readdirSync('node_modules/pdfjs-dist/standard_fonts').filter(name=>/\.(pfb|ttf)$/.test(name)).map(name=>[name,fs.readFileSync(`node_modules/pdfjs-dist/standard_fonts/${name}`).toString('base64')]));
 // Self-contained classic workers also run from disk in Chromium versions that
 // reject module Blob workers for file: origins. The extension keeps ESM files.
@@ -22,7 +23,7 @@ const result = await esbuild.build({absWorkingDir:here, entryPoints:['app.js'], 
 // Include installed dependency license texts in the artifact itself. Runtime and build-only
 // licenses are included conservatively so downstream redistributors retain every notice.
 const lock = JSON.parse(fs.readFileSync('package-lock.json'));
-const notices = [`DICOM offline viewer ${lock.version}\n\nCornerstone3D (MIT), dicom-parser (MIT), PDF.js (Apache-2.0).\nDWV Simplistic was evaluated and not redistributed because GPL-3.0 was not selected for this pilot.\n\nBundled dependency licenses:\n`];
+const notices = [`DICOM offline viewer ${version}\n\nCornerstone3D (MIT), dicom-parser (MIT), PDF.js (Apache-2.0).\nDWV Simplistic was evaluated and not redistributed because GPL-3.0 was not selected for this pilot.\n\nBundled dependency licenses:\n`];
 notices.push('Browser security verification includes code adapted from EA-PDF Generator. Copyright 2026 ThinkBox Digital. Apache-2.0.\n');
 notices.push('The bundled public DigiCert Trusted Root G4 timestamp certificate comes from https://knowledge.digicert.com/general-information/rfc3161-compliant-time-stamp-authority-server .\n');
 for (const [dir,pkg] of Object.entries(lock.packages)) {
@@ -38,7 +39,6 @@ for (const name of ['Cornerstone-Codecs-MIT.txt','OpenJPEG-BSD-2-Clause.txt','Ch
 notices.push('\n===== DICOM dictionary source (MPL-1.1) =====\nGenerated from unmodified dcm4che 5.33.1 Tag and ElementDictionary; initial developer Agfa Healthcare. Upstream corresponding source and build instructions: https://github.com/dcm4che/dcm4che/tree/5.33.1 and https://github.com/dcm4che/dcm4che/archive/refs/tags/5.33.1.tar.gz . Complete generated dictionary source follows, also supplied as dicom-dictionary.json in the extension.\n'+fs.readFileSync('dicom-dictionary.json','utf8')+'\n');
 for(const name of ['LICENSE_FOXIT','LICENSE_LIBERATION'])notices.push(`\n===== PDF.js standard fonts (${name}) =====\n${fs.readFileSync(`node_modules/pdfjs-dist/standard_fonts/${name}`,'utf8')}\n`);
 const noticeText = notices.join('');
-fs.writeFileSync('THIRD_PARTY_NOTICES.txt',noticeText);
 const escapeHtml = text=>text.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 const script = result.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
 const favicon = `data:image/svg+xml;base64,${fs.readFileSync('extension/icons/dicom-pdf.svg').toString('base64')}`;
@@ -52,7 +52,41 @@ const html = fs.readFileSync('extension/viewer.html','utf8')
   .replaceAll('__VIEWER_VERSION__',version)
   .replaceAll('icons/dicom-pdf.svg',favicon).replaceAll('icons/icon-32.png',pngIcon)
   .replace('__NOTICES__',()=>escapeHtml(noticeText)).replace('</body>',()=>`<script>${script}</script></body>`);
-fs.mkdirSync('../src/main/resources', {recursive:true});
-fs.writeFileSync('../src/main/resources/viewer.html',html);
+const target=path.resolve('../target');
+fs.mkdirSync(target,{recursive:true});
+const staging=fs.mkdtempSync(path.join(target,'viewer-build-'));
+const extension=path.join(target,'chrome-extension');
+const zipName=`dicom-pdf-chrome-${version}.zip`;
+const archive=path.join(target,zipName);
+try {
+  const stageExtension=path.join(staging,'chrome-extension');
+  const stageArchive=path.join(staging,zipName);
+  await buildExtension({
+    manifest:JSON.parse(files.get(path.resolve('extension/manifest.json'))),
+    notices:noticeText,
+    installation:files.get(path.resolve('extension/README.md')),
+    output:stageExtension,
+    archive:stageArchive
+  });
+  files.set(path.resolve('THIRD_PARTY_NOTICES.txt'),noticeText);
+  files.set(path.resolve('../src/main/resources/viewer.html'),html);
+  const artifacts=[[stageExtension,extension],[stageArchive,archive]];
+  for (const [destination,content] of files) {
+    const source=path.join(staging,`file-${artifacts.length}`);
+    fs.writeFileSync(source,content);
+    artifacts.push([source,destination]);
+  }
+  const lock=path.join(target,'.viewer-publication');
+  fs.mkdirSync(lock);
+  try {
+    if(planViewerVersion(here).version!==version)
+      throw new Error('Another build advanced the viewer version. Run this build again.');
+    publishViewerBuild(staging,artifacts);
+  } finally {
+    fs.rmdirSync(lock);
+  }
+} finally {
+  fs.rmSync(staging,{recursive:true,force:true});
+}
 console.log(`Built single-file viewer (${Buffer.byteLength(html)} bytes), all runtime code and notices inline.`);
-await buildExtension(version);
+console.log(`Built unpacked Chrome extension: ${extension}\nZIP: ${archive}`);

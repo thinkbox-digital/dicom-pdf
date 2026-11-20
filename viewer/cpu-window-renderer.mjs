@@ -35,7 +35,7 @@ export function createWindowRenderer(image,{canvasFactory=defaultCanvas}={}){
   function releaseCanvas(){if(canvas){canvas.width=0;canvas.height=0;}canvas=null;context=null;rgba=null;cached=null;}
   function restore(){if(image.render===render){if(hadRender)image.render=originalRender;else delete image.render;}}
   function updateHook(){
-    const custom=!image.color&&(floating||image.modalityLut||image.sampledVoiLut||state.function!=='LINEAR'||state.width===1);
+    const custom=!image.color&&(floating||image.modalityLut||image.sampledVoiLut||image.presentationLut||state.function!=='LINEAR'||state.width===1);
     if(custom){
       if(image.render!==render&&image.render!==originalRender)throw new Error('The image display renderer changed unexpectedly.');
       image.render=render;

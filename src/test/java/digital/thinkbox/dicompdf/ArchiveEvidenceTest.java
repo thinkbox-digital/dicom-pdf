@@ -63,7 +63,10 @@ class ArchiveEvidenceTest {
         Path first=temporary.resolve("first.json"),second=temporary.resolve("second.json");
         try(var identity=institution.identity()){
             var options=options(institution,identity);
-            assertEquals("TIMESTAMPED_ARCHIVE_EVIDENCE",ArchiveEvidence.renew(pdf,null,first,options).assurance());
+            var earlierPolicy = options.policy().withTime(institution.now().minusSeconds(120));
+            var longRunning = new ArchiveSecurity.Options(identity, earlierPolicy, options.verapdf(),
+                    options.protection(), options.clock(), options.timestampClient());
+            assertEquals("TIMESTAMPED_ARCHIVE_EVIDENCE",ArchiveEvidence.renew(pdf,null,first,longRunning).assurance());
             byte[] prior=Files.readAllBytes(first);
             var report=ArchiveEvidence.renew(pdf,first,second,options);
             assertEquals("TIMESTAMPED_ARCHIVE_EVIDENCE",report.assurance(),report.json());

@@ -43,3 +43,15 @@ java -cp "target/test-classes:target/classes:$(cat target/test-classpath.txt)" \
 copy with omitted patient fields and a different instance UID. Production code
 never anonymizes or modifies master DICOM bytes; declared derived packages use
 `--source-role deidentified-copy` and separate input/output locations.
+
+`surface-segmentation/asymmetric-tetrahedron.dcm` is an Explicit VR Little Endian
+Surface Segmentation object with four vertices and four triangular faces. The
+unequal sides make changes in orientation visible during the browser test.
+The fixture uses invented study metadata and the same synthetic patient identity
+as the baseline fixtures. Regenerate it with the dcm4che-based fixture writer.
+
+```sh
+mvn -B -pl app -am test-compile exec:java -Dexec.classpathScope=test \
+  -Dexec.mainClass=digital.thinkbox.dicompdf.SurfaceSegmentationFixtures \
+  '-Dexec.args=--write-dicom fixtures/surface-segmentation/asymmetric-tetrahedron.dcm'
+```

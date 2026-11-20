@@ -50,7 +50,7 @@ final class DicomValidation {
         var source=SourceContent.of(content);
         if (source == null) throw new IOException("Original bytes unavailable for DICOM validation: " + attachment);
         String hash = source.digest().sha256();
-        byte[] bytes=source.prefix(1024*1024);
+        byte[] bytes=fileMetaPrefix(source);
         List<Issue> issues = new ArrayList<>();
         boolean prefix = bytes.length >= 132 && bytes[128]=='D' && bytes[129]=='I' && bytes[130]=='C' && bytes[131]=='M';
         boolean recognizable = prefix || bytes.length >= 136 && u16(bytes,132)==2 || bytes.length>=8 && u16(bytes,0)==2;
@@ -110,6 +110,44 @@ final class DicomValidation {
         if (a!=null && b!=null && !a.equals(b)) issue(issues,"ERROR","FILE_META_IDENTITY_MISMATCH","fileMeta/"+tag(headerTag),
                 keyword(headerTag)+" differs from dataset "+keyword(datasetTag),FILE_SPEC);
     }
+    private static final int MAX_FILE_META_PREFIX=1024*1024;
+    private static final Set<String> LONG_VRS=Set.of("OB","OD","OF","OL","OV","OW","SQ","UC","UN","UR","UT","SV","UV");
+    private static boolean longHeader(VR vr,String encoded){return vr==null || LONG_VRS.contains(encoded);}
+    private static byte[] fileMetaPrefix(SourceContent source)throws IOException {
+        try(var stream=new BufferedInputStream(source.open())){
+            stream.mark(136);
+            byte[] preamble=stream.readNBytes(136);
+            boolean prefix=preamble.length>=132 && preamble[128]=='D' && preamble[129]=='I' && preamble[130]=='C' && preamble[131]=='M';
+            int start;
+            if(prefix)start=132;
+            else if(preamble.length>=8 && u16(preamble,0)==2)start=0;
+            else if(preamble.length>=136 && u16(preamble,132)==2)start=132;
+            else return preamble;
+            stream.reset();
+            var bytes=new ByteArrayOutputStream();
+            bytes.write(stream.readNBytes(start));
+            while(bytes.size()<MAX_FILE_META_PREFIX){
+                byte[] header=stream.readNBytes(Math.min(8,MAX_FILE_META_PREFIX-bytes.size()));
+                bytes.write(header);
+                if(header.length<8 || u16(header,0)!=2)break;
+                String encoded=new String(header,4,2,StandardCharsets.US_ASCII);
+                VR vr;
+                try{vr=VR.valueOf(encoded);}catch(IllegalArgumentException e){vr=null;}
+                long length;
+                if(longHeader(vr,encoded)){
+                    byte[] extra=stream.readNBytes(Math.min(4,MAX_FILE_META_PREFIX-bytes.size()));
+                    bytes.write(extra);
+                    if(extra.length<4)break;
+                    length=u32(extra,0);
+                }else length=u16(header,6);
+                int requested=(int)Math.min(length,MAX_FILE_META_PREFIX-bytes.size());
+                byte[] value=stream.readNBytes(requested);
+                bytes.write(value);
+                if(value.length!=length)break;
+            }
+            return bytes.toByteArray();
+        }
+    }
     private static Map<Integer,RawMeta> rawMeta(byte[] bytes,int at,List<Issue> issues) {
         Map<Integer,RawMeta> result = new LinkedHashMap<>(); int last = -1;
         try {
@@ -117,7 +155,7 @@ final class DicomValidation {
                 int tag = u16(bytes,at)<<16 | u16(bytes,at+2);
                 String encoded = new String(bytes,at+4,2,StandardCharsets.US_ASCII); VR vr;
                 try { vr=VR.valueOf(encoded); } catch (IllegalArgumentException e) { vr=null; }
-                boolean longLength = vr==null || Set.of("OB","OD","OF","OL","OV","OW","SQ","UC","UN","UR","UT","SV","UV").contains(encoded);
+                boolean longLength = longHeader(vr,encoded);
                 int header = longLength?12:8;
                 if (at+header>bytes.length) throw new IOException("Truncated file-meta element header");
                 long length = longLength?u32(bytes,at+8):u16(bytes,at+6);

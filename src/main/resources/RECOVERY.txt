@@ -65,6 +65,9 @@ and separate NEW recovery folders for masters and approved deidentified copies.
 Do not mix them in a single package. Retain a protected archival master before
 creating a deidentified derivative with a separate approved workflow.
 
-Scope includes 2D frames from CT/MR and other raster Image Storage classes.
-Signing, C2PA, 3D volume rendering and calibrated measurements are deferred. SHA-256 establishes consistency with the manifest,
-not authenticity of an unsigned package. Keep the PDF and its manifest together.
+Optional institutional signing and timestamp evidence:
+If manifest.json declares a security extension, use verify-security with a
+local verification configuration and independently selected trust anchors:
+  java -jar "$DICOM_PDF_JAR" verify-security --input package.pdf --security-config /path/to/verification.json
+Inspect the signature, certificate trust and timestamp results separately.
+This profile does not declare embedded C2PA export credentials.

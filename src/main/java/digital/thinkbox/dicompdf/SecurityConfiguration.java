@@ -14,17 +14,20 @@ final class SecurityConfiguration {
     private final JsonObject json;private final Path parent;
     final ArchiveSecurity.Protection protection;final CertificatePolicy policy;final String verapdf;
     SecurityConfiguration(Path path)throws Exception{
-        this(path,null,null,null);
+        this(path,null,null);
     }
     static SecurityConfiguration forDesktop(Path path,boolean timestamping,String passphrase)throws Exception{
-        return new SecurityConfiguration(path,DesktopRequest.VERAPDF,timestamping,passphrase);
+        return new SecurityConfiguration(path,timestamping,passphrase);
     }
-    private SecurityConfiguration(Path path,String validatorOverride,Boolean timestamping,String passphraseOverride)throws Exception{
+    static String defaultValidator(){
+        String executable=System.getenv("VERAPDF");
+        return executable==null||executable.isBlank()?"verapdf":executable;
+    }
+    private SecurityConfiguration(Path path,Boolean timestamping,String passphraseOverride)throws Exception{
         if(Files.size(path)>1024*1024)throw new IOException("Security configuration is too large");
         parent=path.toRealPath().getParent();json=JsonParser.parseString(Files.readString(path,StandardCharsets.UTF_8)).getAsJsonObject();
         var allowed=Set.of("protection","pkcs12","passphraseFile","alias","trustCertificates","supportingCertificates","crls","ocsps","verapdf","verificationTime","tsaUrl","tsaPolicyOid");
         if(!allowed.containsAll(json.keySet()))throw new IOException("Unknown security configuration property; passwords must use a separate passphrase file");
-        if(validatorOverride!=null)json.addProperty("verapdf",validatorOverride);
         if(passphraseOverride!=null&&!passphraseOverride.isBlank())json.addProperty("passphraseFile",Path.of(passphraseOverride).toAbsolutePath().normalize().toString());
         var selected=ArchiveSecurity.Protection.valueOf(required("protection"));
         if(timestamping!=null){
@@ -33,7 +36,7 @@ final class SecurityConfiguration {
             else{json.remove("tsaUrl");json.remove("tsaPolicyOid");}
         }
         protection=selected==ArchiveSecurity.Protection.CMS_AND_PDF&&(json.has("tsaUrl")||json.has("tsaPolicyOid"))?ArchiveSecurity.Protection.CMS_AND_PDF_TIMESTAMPED:selected;
-        verapdf=resolve(required("verapdf")).toString();
+        verapdf=json.has("verapdf")?resolve(required("verapdf")).toString():defaultValidator();
         var factory=CertificateFactory.getInstance("X.509");var anchors=new HashSet<TrustAnchor>();var crls=new ArrayList<X509CRL>();
         if(json.has("trustCertificates"))for(var name:json.getAsJsonArray("trustCertificates")){
             try(var stream=new ByteArrayInputStream(read(resolve(name.getAsString()),1024*1024))){for(var certificate:factory.generateCertificates(stream))anchors.add(new TrustAnchor((X509Certificate)certificate,null));}

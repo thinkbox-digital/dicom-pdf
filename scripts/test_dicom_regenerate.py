@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 from unittest.mock import patch
 import zipfile
 
@@ -42,6 +43,7 @@ class DicomRegenerateTest(unittest.TestCase):
     def fake_java(self):
         path = self.root / "fake-java"
         path.write_text("""#!/usr/bin/env python3
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -61,7 +63,12 @@ if 'extract' in args:
     (output / 'originals/series').mkdir(parents=True)
     (output / 'originals/series/image.dcm').write_bytes(b'recovered DICOM')
     (output / 'package').mkdir()
-    (output / 'package/manifest.json').write_text(json.dumps({'sourceRole': 'deidentified-copy'}))
+    manifest = {'sourceRole': 'deidentified-copy'}
+    if stage.read_bytes() == b'%PDF-example with receipt':
+        receipt = b'{"schemaVersion":1}'
+        (output / 'package/import-source.json').write_bytes(receipt)
+        manifest['artifactSha256'] = {'import-source.json': hashlib.sha256(receipt).hexdigest()}
+    (output / 'package/manifest.json').write_text(json.dumps(manifest))
     sys.exit(0)
 entries = {p.relative_to(stage).as_posix(): p.read_bytes().hex() for p in stage.rglob('*') if p.is_file()}
 barrier = Path(__file__).with_name('barrier')
@@ -74,6 +81,9 @@ if barrier.is_dir():
         time.sleep(0.02)
 (output.parent.parent / 'staged-files.json').write_text(json.dumps(entries))
 (output.parent.parent / 'create-args.json').write_text(json.dumps(args))
+if '--import-provenance' in args:
+    receipt = Path(args[args.index('--import-provenance')+1])
+    (output.parent.parent / 'import-receipt.json').write_bytes(receipt.read_bytes())
 output.write_bytes(b'%PDF-1.7\\nsynthetic test output')
 if 'fail.dcm' in entries:
     sys.exit(7)
@@ -160,6 +170,13 @@ if 'fail.dcm' in entries:
             args = json.loads(path.read_text())
             self.assertEqual("on", args[args.index("--c2pa") + 1])
             self.assertEqual(str(self.policy), args[args.index("--security-config") + 1])
+        receipt, = self.reports(result.stdout).glob("input-*/import-receipt.json")
+        self.assertEqual({"schemaVersion": 1, "kind": "ZIP_IMPORT", "basis": "LOCAL_CONTAINER_EXTRACTION",
+                          "sourceName": "same.zip", "sourceBytes": before[1]["size"],
+                          "sourceSha256": before[1]["sha256"], "containerEmbedded": False,
+                          "memberRoot": "contents/", "memberCount": 1}, json.loads(receipt.read_text()))
+        self.assertEqual({"contents/series/IMAGE001": b"unchanged archived DICOM".hex()},
+                         json.loads((receipt.parent / "staged-files.json").read_text()))
 
     def test_batch_conversions_share_cpu_with_a_fixed_heap_per_job(self):
         (self.root / "barrier").mkdir()
@@ -277,6 +294,13 @@ if 'fail.dcm' in entries:
         self.assertEqual("off", args[args.index("--c2pa") + 1])
         self.assertNotIn("--security-config", args)
 
+    def test_example_preserves_the_receipt_bound_to_its_manifest(self):
+        source = self.source / "series.pdf"
+        source.write_bytes(b"%PDF-example with receipt")
+        result = self.run_cli("--example", "series.pdf", "--pades", "off")
+        receipt = self.reports(result.stdout) / "input-0001/import-receipt.json"
+        self.assertEqual(b'{"schemaVersion":1}', receipt.read_bytes())
+
     def test_weak_policy_and_staged_passphrase_are_rejected(self):
         with zipfile.ZipFile(self.source / "source.zip", "w") as archive:
             archive.writestr("image.dcm", (self.root / "passphrase.txt").read_bytes())
@@ -328,24 +352,43 @@ if 'fail.dcm' in entries:
             archive.writestr("IMAGE001.gz", compressed)
         stage = self.root / "stage"
         expected = regenerate.source_inventory(folder)
-        regenerate.stage_input(folder, stage, expected)
+        _, captured = regenerate.stage_input(folder, stage)
+        self.assertEqual(expected, captured)
         self.assertEqual(nested.read_bytes(), (stage / "nested.zip").read_bytes())
         self.assertEqual(compressed, (stage / "nested.zip.contents/IMAGE001.gz").read_bytes())
         self.assertEqual(b"DICOM pixel bytes", (stage / "nested.zip.contents/IMAGE001.gz.contents/IMAGE001").read_bytes())
+        outer_stage = self.root / "outer-stage"
+        self.assertIsNone(regenerate.stage_input(nested, outer_stage)[0])
+        self.assertEqual(nested.read_bytes(), (outer_stage / "containers/nested.zip").read_bytes())
+        self.assertEqual(b"DICOM pixel bytes", (outer_stage / "contents/IMAGE001.gz.contents/IMAGE001").read_bytes())
+
+    def test_copy_and_inventory_reject_changes_after_a_loose_file_is_captured(self):
+        path = self.source / "image.dcm"
+        path.write_bytes(b"original bytes")
+        original_copy = regenerate.copy_input
+
+        def mutate_after_copy(source, destination, size):
+            digest = original_copy(source, destination, size)
+            source.write_bytes(b"changed! bytes")
+            return digest
+
+        with mock.patch.object(regenerate, "copy_input", side_effect=mutate_after_copy):
+            with self.assertRaisesRegex(ValueError, "Original input changed during staging"):
+                regenerate.stage_input(path, self.root / "stage")
 
     def test_unsafe_zip_or_expansion_collision_is_rejected(self):
         path = self.source / "bad.zip"
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("../escape", b"bad")
         with self.assertRaises(ValueError):
-            regenerate.stage_input(path, self.root / "stage", regenerate.source_inventory(path))
+            regenerate.stage_input(path, self.root / "stage")
         self.assertFalse((self.root / "escape").exists())
         path.unlink()
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("data", b"bytes")
         (self.source / "bad.zip.contents").mkdir()
         with self.assertRaises(ValueError):
-            regenerate.stage_input(self.source, self.root / "collision", regenerate.source_inventory(self.source))
+            regenerate.stage_input(self.source, self.root / "collision")
 
     def test_dicom_header_takes_priority_over_embedded_zip(self):
         path = self.source / "image.dcm"
@@ -355,7 +398,7 @@ if 'fail.dcm' in entries:
         self.assertTrue(zipfile.is_zipfile(path))
         self.assertEqual("dicom", regenerate.file_kind(path))
         stage = self.root / "stage"
-        regenerate.stage_input(path, stage, regenerate.source_inventory(path))
+        regenerate.stage_input(path, stage)
         self.assertEqual(path.read_bytes(), (stage / path.name).read_bytes())
         self.assertEqual([path.name], [p.name for p in stage.iterdir()])
 
@@ -375,11 +418,13 @@ if 'fail.dcm' in entries:
         self.assertFalse((self.root / "bad-output").exists())
 
     def test_symlink_launcher_resolves_repository(self):
+        (self.source / "image.dcm").write_bytes(b"synthetic input")
         link = self.root / "dicom-regenerate"
         link.symlink_to(regenerate.PROJECT / "scripts/dicom-regenerate.sh")
-        result = subprocess.run(["bash", str(link), "--sample", "--dry-run"], cwd=self.root,
-                                capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["bash", str(link), "--input", str(self.source), "--sample", "--dry-run"],
+                                cwd=self.root, capture_output=True, text=True, timeout=30)
         self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("image.dcm -> out/image.dcm.pdf", result.stdout)
         self.assertIn("Dry run: 1 PDFs", result.stdout)
 
     @unittest.skipUnless(shutil.which("7z") or shutil.which("7zz"), "7z reader not installed")
@@ -391,7 +436,7 @@ if 'fail.dcm' in entries:
         subprocess.run([shutil.which("7z") or shutil.which("7zz"), "a", str(source), "."], cwd=seed,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         stage = self.root / "stage"
-        regenerate.stage_input(source, stage, regenerate.source_inventory(source))
+        regenerate.stage_input(source, stage)
         self.assertEqual(b"seven zip image", (stage / "IMAGE001").read_bytes())
 
 

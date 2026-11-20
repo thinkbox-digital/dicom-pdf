@@ -22,6 +22,15 @@ const fieldsOf=entry=>({...entry?.navigationFields,...entry?.fields});
 const support=(viewKind=null)=>({pane:'metadata',kind:'support',viewKind});
 const data=(kind,viewKind)=>({pane:'data',kind,viewKind});
 
+// Prefer previously rendered images, then retry older rejections supported by
+// newer decoders, followed by the attachment previews. Any candidate can fail.
+export function initialDisplayCandidates(indices,canDisplay,needsProbe,hasPreview){
+  const images=indices.filter(canDisplay);
+  const choices=new Set([...images.filter(index=>!needsProbe(index)),...images,...indices.filter(hasPreview)]);
+  if(!choices.size&&indices.length)choices.add(indices[0]);
+  return choices;
+}
+
 /**
  * Pure pane routing; this is not a claim that a decoder supports an object.
  * Actual DICOM/archive evidence overrides generic filename/MIME categories.

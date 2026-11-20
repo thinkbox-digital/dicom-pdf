@@ -17,6 +17,14 @@ test('asymmetric zero-filled borders are excluded without modifying samples or d
   assert.equal(imageFitBounds(source),imageFitBounds(source));
 });
 
+test('multiframe fit stays anchored when visible content changes position between frames',()=>{
+  const sparseStart=image({left:3,top:7,right:7,numberOfFrames:243});
+  const laterFrame=image({left:1,top:1,bottom:6,numberOfFrames:243});
+  for(const frame of [sparseStart,laterFrame]){
+    assert.deepEqual(imageFitBounds(frame),{left:0,top:0,right:10,bottom:8});
+  }
+});
+
 test('all-zero images, color images and zero samples that are not initially black retain the full matrix',()=>{
   const full={left:0,top:0,right:10,bottom:8};
   for(const options of [{bottom:0},{bottom:5,color:true},{bottom:5,windowCenter:0,windowWidth:256},

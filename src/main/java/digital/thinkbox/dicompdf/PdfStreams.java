@@ -23,7 +23,7 @@ final class PdfStreams {
                 @Override public void close()throws IOException{try{super.close();}finally{inf.end();}}
             };
         }
-        Files.createDirectories(Path.of("target"));Path directory=Files.createTempDirectory(Path.of("target"),"decoded-stream-");
+        Path directory=SourceContent.scratchDirectory("decoded-stream-",null);
         InputStream current=null;
         try{
             current=stream.getCOSObject().createRawInputStream();

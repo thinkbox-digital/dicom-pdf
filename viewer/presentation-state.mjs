@@ -102,7 +102,7 @@ export function readPresentationState(ds){
 const applies=(refs,instance,frame)=>!refs.length||refs.some(ref=>ref.instance===instance&&(!ref.frames||ref.frames.includes(frame)));
 
 export function presentationLut(image,{slope,intercept,invert},window){
-  return buildStoredVoiLut({...image,slope,intercept,modalityLut:null,sampledVoiLut:null},window,{invert});
+  return buildStoredVoiLut({...image,slope,intercept,modalityLut:null,sampledVoiLut:null,presentationLut:null},window,{invert});
 }
 
 export function presentationFrame(presentation,decoded,{includeLut=true}={}){

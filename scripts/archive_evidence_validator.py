@@ -65,7 +65,7 @@ def verify(pdf, evidence, trust_files=(), at=None):
             signed = verify_cms(rfc8785.dumps(binding), cms, trust_files, binding['crls'], binding['issuerCertificateSha256'], issued)
             for name, result in signed.items():
                 checks[prefix+name] = result
-            if any(signed.get(name, {}).get('status') != 'PASS' for name in ['signature', 'certificateTrust', 'revocation']):
+            if any(signed.get(name, {}).get('status') != 'PASS' for name in ['signature', 'keyPolicy', 'certificateTrust', 'revocation']):
                 break
             previous, previous_time = hashlib.sha256(rfc8785.dumps(entry)).hexdigest(), issued
         else:

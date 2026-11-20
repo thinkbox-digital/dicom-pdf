@@ -19,7 +19,7 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 /** Independent PDF/A-4f pilot: originals are inventoried before any PDF transformation. */
 public final class DicomPdf {
     private DicomPdf() {}
-    private record Source(String relative,String attachment,SourceContent content,long size,String sha256,DicomInput.Result dicom,Path preview,String previewSha256) {}
+    private record Source(String relative,String attachment,SourceContent content,long size,String sha256,DicomInput.Result dicom,Path preview,String previewSha256,List<ReferenceInventory.Link> links) {}
     private record Capture(Path directory,List<Source> sources) implements AutoCloseable {
         @Override public void close()throws IOException{try(var paths=Files.walk(directory)){for(var path:paths.sorted(Comparator.reverseOrder()).toList())Files.deleteIfExists(path);}}
     }
@@ -78,8 +78,10 @@ public final class DicomPdf {
                 Map<String,SourceContent> originalBytes = new LinkedHashMap<>();
                 for (Source source : sources) originalBytes.put(source.attachment, source.content);
                 progress.accept("Checking DICOM references and duplicate objects…");
-                var references = ReferenceInventory.resolve(originalBytes);
-                var duplicates = ReferenceInventory.duplicates(originalBytes);
+                var relations=ReferenceInventory.resolveEntries(sources.stream().map(source->
+                        new ReferenceInventory.Entry(source.attachment,source.dicom.fields(),source.links)).toList());
+                var references=relations.references();
+                var duplicates=relations.duplicates();
                 summary(doc, font, sources, sourceRole,receipt,profileVersion);
                 // Inventory pages precede previews; reserve them using the same pagination used to draw them.
                 int summaryPages = doc.getNumberOfPages();
@@ -112,21 +114,41 @@ public final class DicomPdf {
                     COSArray pageFiles = new COSArray(); pageFiles.add(file);
                     page.getCOSObject().setItem(COSName.getPDFName("AF"), pageFiles);
                 }
-                Map<String,byte[]> artifacts = new LinkedHashMap<>();
+                Map<String,SourceContent> artifacts = new LinkedHashMap<>();
                 progress.accept("Building the full metadata inventory…");
-                if(receipt!=null){artifacts.put("import-source.json",receipt);artifacts.put("import-source.schema.json",resourceBytes("/import-source.schema.json"));}
-                artifacts.put("inventory.txt", (String.join("\n", inventory) + "\n").getBytes(StandardCharsets.UTF_8));
-                artifacts.put("dicom-metadata.json", DicomMetadataInventory.bytes(DicomMetadataInventory.capture(images, originalBytes)));
-                artifacts.put("metadata-mapping.json", resourceBytes("/metadata-mapping.json"));
+                if(receipt!=null){
+                    artifacts.put("import-source.json",SourceContent.of(receipt));
+                    artifacts.put("import-source.schema.json",resourceContent("/import-source.schema.json"));
+                }
+                artifacts.put("inventory.txt",SourceContent.of((String.join("\n",inventory)+"\n").getBytes(StandardCharsets.UTF_8)));
+                Path sidecar=capture.directory.resolve("dicom-metadata.json");
+                long sidecarBudget=attachmentLimit;
+                for(var source:sources){
+                    if(source.size>sidecarBudget)throw new IOException("Originals exceed the configured recovery limit");
+                    sidecarBudget-=source.size;
+                }
+                var metadataHash=MessageDigest.getInstance("SHA-256");
+                try(var outputStream=new java.security.DigestOutputStream(Files.newOutputStream(sidecar),metadataHash)){
+                    DicomMetadataInventory.writeCaptured(images,originalBytes,true,DicomMetadataInventory.bounded(outputStream,sidecarBudget));
+                }
+                var metadata=SourceContent.file(sidecar,new SourceContent.Digest(Files.size(sidecar),HexFormat.of().formatHex(metadataHash.digest())));
+                artifacts.put("dicom-metadata.json",metadata);
+                artifacts.put("metadata-mapping.json",resourceContent("/metadata-mapping.json"));
                 progress.accept("Checking DICOM attributes, payload structure and directories…");
-                artifacts.put("dicom-validation.json", DicomValidation.bytes(DicomValidation.capture(images, originalBytes)));
-                artifacts.put("dicom-structure.json",DicomStructure.bytes(DicomStructure.capture(images,originalBytes)));
-                artifacts.put("dicom-directory.json", DicomDirectory.bytes(DicomDirectory.capture(images, originalBytes)));
-                artifacts.put("display-mapping.json", resourceBytes("/display-mapping.json"));
-                for (String name : List.of("dicom-xmp.rng", "profile.json", "field-mapping.json", "RECOVERY.txt", "viewer.html")) artifacts.put(name, resourceBytes("/" + name));
-                if(c2pa){artifacts.put(ArchiveC2pa.POLICY,ArchiveC2pa.POLICY_BYTES);artifacts.put("profile.json",resourceBytes("/c2pa-profile.json"));artifacts.put("dicom-xmp.rng",resourceBytes("/c2pa-dicom-xmp.rng"));}
-                Map<String,String> artifactHashes = new LinkedHashMap<>();
-                for (var artifact : artifacts.entrySet()) artifactHashes.put(artifact.getKey(), sha256(artifact.getValue()));
+                artifacts.put("dicom-validation.json",SourceContent.of(DicomValidation.bytes(DicomValidation.capture(images,originalBytes))));
+                artifacts.put("dicom-structure.json",SourceContent.of(DicomStructure.bytes(DicomStructure.capture(images,originalBytes))));
+                artifacts.put("dicom-directory.json",SourceContent.of(DicomDirectory.bytes(DicomDirectory.capture(images,originalBytes))));
+                artifacts.put("display-mapping.json",resourceContent("/display-mapping.json"));
+                for(String name:List.of("dicom-xmp.rng","profile.json","field-mapping.json","RECOVERY.txt","viewer.html"))
+                    artifacts.put(name,resourceContent("/"+name));
+                if(c2pa){
+                    artifacts.put("RECOVERY.txt",resourceContent("/c2pa-RECOVERY.txt"));
+                    artifacts.put(ArchiveC2pa.POLICY,SourceContent.of(ArchiveC2pa.POLICY_BYTES));
+                    artifacts.put("profile.json",resourceContent("/c2pa-profile.json"));
+                    artifacts.put("dicom-xmp.rng",resourceContent("/c2pa-dicom-xmp.rng"));
+                }
+                Map<String,String> artifactHashes=new LinkedHashMap<>();
+                for(var artifact:artifacts.entrySet())artifactHashes.put(artifact.getKey(),artifact.getValue().digest().sha256());
                 manifest = new Manifest(2, "dicom-images", profileVersion, ApplicationVersion.CREATOR, sourceRole,
                         1, List.copyOf(images), references, duplicates, Collections.unmodifiableMap(artifactHashes));
                 byte[] manifestBytes = ManifestEncoding.encode(manifest);
@@ -136,7 +158,7 @@ public final class DicomPdf {
                 long recoverable = 0;
                 if(c2pa)recoverable=PackageLimits.reserve(recoverable,ArchiveC2pa.CAPACITY);
                 for (Source source : sources) recoverable = PackageLimits.reserve(recoverable, source.size);
-                for (byte[] artifact : artifacts.values()) recoverable = PackageLimits.reserve(recoverable, artifact.length);
+                for (var artifact : artifacts.values()) recoverable = PackageLimits.reserve(recoverable, artifact.digest().length());
                 recoverable = PackageLimits.reserve(recoverable, manifestBytes.length);
                 recoverable = PackageLimits.reserve(recoverable, (sha256(manifestBytes) + "  manifest.json\n").getBytes(StandardCharsets.UTF_8).length);
                 if (recoverable > attachmentLimit) throw new IOException("Originals and package resources exceed the configured recovery limit");
@@ -150,7 +172,7 @@ public final class DicomPdf {
                 attachments.finish();
                 progress.accept("Writing archive metadata and PDF pages…");
                 if(c2pa)ArchiveC2pa.attach(doc);
-                PdfMetadata.apply(doc, json, artifacts.get("dicom-metadata.json"));
+                PdfMetadata.applyStream(doc,json,metadata);
                 doc.getDocumentCatalog().setLanguage("en-US");
                 doc.getDocumentCatalog().setPageMode(PageMode.USE_ATTACHMENTS);
                 try (var documentOutput = PackageLimits.documentOutput(Files.newOutputStream(staged), documentLimit)) {
@@ -171,7 +193,7 @@ public final class DicomPdf {
 
     private static String displayPath(String path){return path.replaceAll("[\\p{Cntrl}]","?");}
     private static Capture capture(Path root,Consumer<String> progress)throws Exception {
-        Files.createDirectories(Path.of("target"));Path directory=Files.createTempDirectory(Path.of("target"),"source-snapshot-");
+        Path directory=SourceContent.scratchDirectory("source-snapshot-",root);
         var sources=new ArrayList<Source>();var captured=new Capture(directory,sources);
         try{
             progress.accept("Scanning selected inputs…");
@@ -180,18 +202,26 @@ public final class DicomPdf {
             int workers=captureWorkers(paths.size());
             progress.accept("Preparing reference images with "+workers+" worker"+(workers==1?"":"s")+"…");
             try(var executor=Executors.newFixedThreadPool(workers)){
-                var pending=new ArrayDeque<Future<Source>>();int next=0;
-                try{
-                    while(next<paths.size()&&pending.size()<workers){final int index=next++;pending.add(executor.submit(()->captureSource(root,paths.get(index),directory,index)));}
-                    while(!pending.isEmpty()){
-                        Source source;
-                        try{source=pending.removeFirst().get();}
+                var completion=new ExecutorCompletionService<Integer>(executor);
+                var ordered=new Source[paths.size()];
+                int dispatched=0,finished=0;
+                try {
+                    while(finished<paths.size()){
+                        while(dispatched<paths.size() && dispatched-finished<workers){
+                            final int index=dispatched++;
+                            completion.submit(()->{
+                                ordered[index]=captureSource(root,paths.get(index),directory,index);
+                                return index;
+                            });
+                        }
+                        int index;
+                        try{index=completion.take().get();}
                         catch(ExecutionException failure){if(failure.getCause() instanceof Exception cause)throw cause;throw failure;}
-                        sources.add(source);
-                        progress.accept("Prepared file "+sources.size()+"/"+paths.size()+": "+displayPath(source.relative)+" — "+(source.preview==null?"original preserved without a reference image":"reference image ready"));
-                        if(next<paths.size()){final int index=next++;pending.add(executor.submit(()->captureSource(root,paths.get(index),directory,index)));}
+                        Source source=ordered[index];
+                        progress.accept("Prepared file "+(++finished)+"/"+paths.size()+": "+displayPath(source.relative)+" — "+(source.preview==null?"original preserved without a reference image":"reference image ready"));
                     }
-                }finally{pending.forEach(future->future.cancel(true));executor.shutdownNow();}
+                    Collections.addAll(sources,ordered);
+                }finally{executor.shutdownNow();}
             }
             if(sources.isEmpty())throw new IllegalArgumentException("Input directory contains no files");return captured;
         }catch(Exception failure){captured.close();throw failure;}
@@ -210,16 +240,18 @@ public final class DicomPdf {
                 var content=SourceContent.file(path).snapshot(snapshot,Long.MAX_VALUE);var digest=content.digest();
                 if(observed!=digest.length()||!digest.equals(SourceContent.file(path).digest()))throw new IOException("Source changed while its archival snapshot was captured");
                 String relative=root.relativize(path).toString().replace(File.separatorChar,'/');
-                if(relative.indexOf('\\')>=0||relative.indexOf(':')>=0)throw new IOException("Input path is not portable for safe recovery");
+                ArchivePath.check(relative);
                 String attachment="original-"+String.format(Locale.ROOT,"%04d",index+1)+".dcm";
-                var inspected=DicomInput.inspect(content);Path preview=null;String previewHash=null;
+                var capture=DicomInput.capture(content);
+                var inspected=capture.preview();Path preview=null;String previewHash=null;
                 if(inspected.image()!=null){
-                    preview=directory.resolve("preview-"+index+".png");previewHash=DicomInput.previewSha256(inspected.image());
-                    if(!javax.imageio.ImageIO.write(DicomInput.rgb(inspected.image()),"png",preview.toFile()))throw new IOException("Could not spool the reference image");
+                    var rgb=DicomInput.rgb(inspected.image());
+                    preview=directory.resolve("preview-"+index+".png");previewHash=DicomInput.previewSha256(rgb);
+                    if(!javax.imageio.ImageIO.write(rgb,"png",preview.toFile()))throw new IOException("Could not spool the reference image");
                     inspected.image().flush();
                 }
                 var metadata=new DicomInput.Result(inspected.fields(),null,inspected.reason(),inspected.displayAdjustments());
-                return new Source(relative,attachment,content,digest.length(),digest.sha256(),metadata,preview,previewHash);
+                return new Source(relative,attachment,content,digest.length(),digest.sha256(),metadata,preview,previewHash,capture.links());
     }
 
     private static void summary(PDDocument doc, PDType0Font font, List<Source> sources, String sourceRole,byte[] importReceipt,String profileVersion) throws Exception {
@@ -384,7 +416,7 @@ public final class DicomPdf {
         if (in == null) throw new IOException("Required bundled resource missing: " + name);
         return in;
     }
-    private static byte[] resourceBytes(String name) throws IOException { try (var in = resource(name)) { return in.readAllBytes(); } }
+    private static SourceContent resourceContent(String name){return new SourceContent(()->resource(name));}
     private static String sha256(byte[] bytes) throws Exception { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)); }
     private static void verifySavedOriginals(Path saved, List<Source> sources) throws Exception {
         try (var doc = Loader.loadPDF(saved.toFile(),org.apache.pdfbox.io.IOUtils.createTempFileOnlyStreamCache())) {

@@ -165,19 +165,29 @@
     "attachment": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^/\\\\:\u0000-\u001f\u007f]+$",
       "not": {
-        "enum": [
-          ".",
-          ".."
+        "anyOf": [
+          {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          {
+            "pattern": "[/\\\\:\u0000-\u001f\u007f]"
+          }
         ]
       }
     },
     "path": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[^\\\\:\u0000-\u001f\u007f]+$",
       "allOf": [
+        {
+          "not": {
+            "pattern": "[\\\\:\u0000-\u001f\u007f]"
+          }
+        },
         {
           "not": {
             "pattern": "^/|/$|//"

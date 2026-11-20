@@ -52,7 +52,7 @@ def member_path(info: zipfile.ZipInfo) -> Path:
     return Path(*parts)
 
 
-def safe_extract(archive: Path, destination: Path) -> dict:
+def safe_extract(archive: Path, destination: Path, *, reserve=lambda _: None, check=lambda: None) -> dict:
     """Preflight all members and stage a new directory; no existing path is overwritten."""
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(f"Staging directory already exists: {destination}")
@@ -67,6 +67,7 @@ def safe_extract(archive: Path, destination: Path) -> dict:
             total = 0
             count = 0
             for info in source.infolist():
+                check()
                 relative = member_path(info)
                 portable_key = relative.as_posix().casefold()
                 if portable_key in used:
@@ -81,6 +82,7 @@ def safe_extract(archive: Path, destination: Path) -> dict:
                     raise ValueError("Archive exceeds staging entry or available-disk budget")
             if not count:
                 raise ValueError("Archive contains no files")
+            reserve(info.file_size for info, _ in members if not info.is_dir())
             # Prevent a directory entry from colliding with any file or its descendants.
             file_names = {relative.as_posix().casefold() for info, relative in members if not info.is_dir()}
             for _, relative in members:
@@ -92,6 +94,7 @@ def safe_extract(archive: Path, destination: Path) -> dict:
             inventory = []
             actual_total = 0
             for info, relative in members:
+                check()
                 target = staged / relative
                 if info.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
@@ -101,6 +104,7 @@ def safe_extract(archive: Path, destination: Path) -> dict:
                 actual = 0
                 with source.open(info) as input_file, target.open("xb") as output_file:
                     for block in iter(lambda: input_file.read(1024 * 1024), b""):
+                        check()
                         actual += len(block)
                         actual_total += len(block)
                         if actual > MAX_FILE_BYTES or actual_total > MAX_TOTAL_BYTES:
@@ -216,7 +220,7 @@ def convert_archive(archive: Path, args) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archives", nargs="+", type=Path)
-    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.19.0.jar"))
+    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.23.0.jar"))
     parser.add_argument("--verapdf", default=os.environ.get("VERAPDF", "verapdf"))
     parser.add_argument("--staging", type=Path, default=Path("target/series-inputs"))
     parser.add_argument("--output", type=Path, default=Path("out"))

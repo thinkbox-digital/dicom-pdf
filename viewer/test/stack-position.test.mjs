@@ -18,6 +18,24 @@ function scheduler(){
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
+test('reused immutable orders avoid rechecking every source on selection while rejecting stale targets',()=>{
+  const entries=Array.from({length:200},(_,index)=>image(index+1));
+  let checks=0;
+  const eligible=entry=>{checks++;return entry.display;};
+  const stackOrder=createStackOrder(entries,{canDisplay:eligible});
+  const get=index=>buildStackPosition({entries,canDisplay:eligible,stackOrder,index});
+  get(0);checks=0;
+  const next=get(99);
+  assert.deepEqual(next.targetAt(next.value),{index:99,frame:1});
+  assert.ok(checks<5);
+  entries[88].display=false;
+  assert.equal(next.targetAt(89),null);
+  entries[12].sha256='new identity';
+  assert.equal(next.targetAt(13),null);
+  stackOrder.clear();
+  assert.equal(get(99).max,199);
+});
+
 test('image positions follow physical order, preserve global indices and retain duplicate IDs',()=>{
   const entries=[image(30,{sopInstanceUID:'duplicate'}),image(10,{sopInstanceUID:'duplicate'}),image(20,{display:false}),image(40,{sopInstanceUID:'duplicate'})];
   const {getPosition}=setup(entries,0),position=getPosition();

@@ -2,6 +2,11 @@
 
 The repository includes automated tests and [synthetic DICOM fixtures](../fixtures/README.md).
 Run the suites from the repository root.
+GitHub Actions runs the suites, veraPDF conformance tests, and the Chromium
+surface check on pull requests and pushes to `main`. The version workflow
+also checks the packaged JARs and round-trips synthetic originals before
+publishing the workflow artifact. [CI workflow](../.github/workflows/ci.yml) ·
+[Version workflow](../.github/workflows/version.yml)
 
 ## Java converter and PDF security library
 
@@ -14,6 +19,8 @@ mvn test
 The tests cover DICOM source handling, reference images, archive recovery,
 metadata and signing. Maven writes test reports to `target/app/surefire-reports/`
 and `target/pdf-security/surefire-reports/`.
+The PDF/A conformance tests require a veraPDF CLI. Enable them with
+`mvn test -Ddicompdf.test.verapdf=/path/to/verapdf`.
 
 ## Offline viewer and Chrome extension
 
@@ -29,10 +36,25 @@ The viewer tests cover image decoding, archive integrity, navigation and
 original-file export. The extension tests cover file permissions and handoff
 from Chrome's PDF viewer.
 
-With Playwright Chromium installed, run `python3 scripts/check_surface_segmentation.py`
-against the built viewer and extension. It checks the 3D preview, the PDF
-reference tab, byte-exact recovery and the WebGL-unavailable message. Use
-`--help` to see the expected input paths and overrides.
+The Chromium check uses the same Java 21 and Maven setup to convert checked-in
+synthetic DICOM fixtures to PDFs under `target/`. It checks rotation, pan, zoom
+and reset in the standalone viewer and unpacked extension, along with the PDF
+reference tab, byte-exact recovery and the WebGL-unavailable message.
+
+Run the viewer build in a disposable checkout if you want to keep your working
+copy's viewer version. The build advances the standalone viewer and extension
+versions together. After `npm ci --prefix viewer`, run:
+
+```sh
+npm --prefix viewer run build
+python3 -m venv target/browser-test-env
+target/browser-test-env/bin/python -m pip install -r scripts/requirements.txt
+target/browser-test-env/bin/python -m playwright install chromium
+target/browser-test-env/bin/python scripts/check_surface_segmentation.py
+```
+
+Use `--help` for custom input paths. Results are written to
+`target/surface-segmentation-checks/summary.json`.
 
 ## Python tools
 

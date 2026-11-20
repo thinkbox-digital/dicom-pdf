@@ -10,7 +10,11 @@ import org.apache.pdfbox.Loader;
 /** Desktop-only process bridge; uses the existing signing and verification engines. */
 public final class DesktopSigningMain {
     private DesktopSigningMain(){}
-    public static void main(String[] args){int code=run(args,System.in,System.out,System.err);if(code!=0)System.exit(code);}
+    public static void main(String[] args){
+        Main.applyCompressionDefault();
+        int code=run(args,System.in,System.out,System.err);
+        if(code!=0)System.exit(code);
+    }
     static int run(String[] args,InputStream passwordInput,PrintStream out,PrintStream err){
         char[] password=null;
         try{
@@ -21,7 +25,7 @@ public final class DesktopSigningMain {
                     throw new IllegalArgumentException("Invalid desktop signing options.");
             }
             Path input=Path.of(required(options,"--input"));
-            String validator=options.getOrDefault("--verapdf",DesktopRequest.VERAPDF);
+            String validator=options.getOrDefault("--verapdf",SecurityConfiguration.defaultValidator());
             if(operation.equals("verify")){
                 boolean signed;
                 try(var pdf=Loader.loadPDF(input.toFile(),org.apache.pdfbox.io.IOUtils.createTempFileOnlyStreamCache())){

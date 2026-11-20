@@ -67,31 +67,42 @@ public final class PdfSecurity {
     }
 
     public static Result verify(Path pdf,Protection protection,CertificatePolicy policy,C2paProfile profile,String expectedCertificate){
+        return verify(pdf,protection,policy,profile,expectedCertificate,false);
+    }
+    private static Result verify(Path pdf,Protection protection,CertificatePolicy policy,C2paProfile profile,String expectedCertificate,boolean staged){
         var checks=new LinkedHashMap<String,SecurityReport.Check>();Instant best=null;boolean lta=false;
         if(profile==null){
             try(var document=org.apache.pdfbox.Loader.loadPDF(pdf.toFile())){
                 if(C2pa.hasCredentials(document))checks.put("c2pa.profile",new SecurityReport.Check(FAIL,"EXPLICIT_C2PA_PROFILE_REQUIRED"));
             }catch(IOException failure){checks.put("pdf.structure",new SecurityReport.Check(FAIL,"PDF_STRUCTURE_UNAVAILABLE"));}
         }
-        if(profile!=null){
-            checks.putAll(C2pa.verify(pdf,profile));
-            if(!checks.containsKey("c2pa.signature")||!checks.containsKey("c2pa.binding"))
-                checks.put("c2pa.validation",new SecurityReport.Check(FAIL,"CONFIGURED_C2PA_PROFILE_MISSING_OR_INVALID"));
-        }
         if(protection==Protection.PADES_B_LTA){
-            var result=DssPades.verify(pdf,policy,expectedCertificate,profile);best=result.bestSignatureTime();lta=result.lta();
+            DssPades.Result result;
+            if(staged&&profile!=null){
+                var verified=DssPades.verifyPrivateRevision(pdf,policy,expectedCertificate,profile);
+                checks.putAll(verified.credentials());
+                result=verified.pades();
+            }else{
+                // External paths may change between consumers. Each verifier authenticates its own input.
+                if(profile!=null)checks.putAll(C2pa.verify(pdf,profile));
+                result=DssPades.verify(pdf,policy,expectedCertificate,profile);
+            }
+            best=result.bestSignatureTime();lta=result.lta();
             result.checks().forEach((key,value)->checks.put("pdf."+key,value));
             checks.put("requestedProtection",new SecurityReport.Check(result.valid()&&lta?PASS:FAIL,"REQUESTED_PADES_B_LTA_REQUIRED"));
         }else{
+            if(profile!=null)checks.putAll(C2pa.verify(pdf,profile));
             PdfCmsVerification.verify(pdf,policy,expectedCertificate).forEach((key,value)->checks.put("pdf."+key,value));
             boolean time=protection==Protection.CMS_AND_PDF||checks.get("pdf.timestamp")!=null&&checks.get("pdf.timestamp").status()==PASS;
             checks.put("requestedProtection",new SecurityReport.Check(time?PASS:FAIL,"REQUESTED_PDF_SIGNATURE_AND_TIMESTAMP_LEVEL"));
         }
+        if(profile!=null&&(!checks.containsKey("c2pa.signature")||!checks.containsKey("c2pa.binding")))
+            checks.put("c2pa.validation",new SecurityReport.Check(FAIL,"CONFIGURED_C2PA_PROFILE_MISSING_OR_INVALID"));
         return new Result(checks,best,lta);
     }
 
     private static Result verified(Path staged,Protection protection,Options options,String expectedCertificate)throws IOException{
-        var result=verify(staged,protection,currentPolicy(options),options.profile(),expectedCertificate);
+        var result=verify(staged,protection,currentPolicy(options),options.profile(),expectedCertificate,true);
         if(!result.valid()||protection==Protection.PADES_B_LTA&&!result.lta())throw new IOException("PDF security verification failed; no output published or protection downgrade: "+result.checks());
         return result;
     }

@@ -7,11 +7,14 @@ declared checks, not clinical completeness, full DICOM IOD validity or authentic
 import argparse
 import base64
 from collections import Counter, defaultdict
+from contextlib import contextmanager
 import hashlib
 from itertools import islice
 import json
 import os
 from pathlib import Path
+from select import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -19,10 +22,13 @@ import rfc8785
 from archive_openssl import verify_cms, verify_pdf
 from archive_timestamps import verify_timestamp
 from archive_dss import read_dss
+from archive_dicom_probe import MAX_RESULT_BYTES
 
 from defusedxml import ElementTree
 from jsonschema import Draft202012Validator
-from pypdf import PdfReader, Configuration, overwrite_configuration
+from pypdf import PdfReader, overwrite_configuration
+from pypdf.filters import decode_stream_data
+from pypdf.generic import EncodedStreamObject
 
 # pypdf materializes decoded attachments. Use available runtime memory as its
 # allocation budget; source/PDF file length is not an eligibility criterion.
@@ -107,19 +113,98 @@ def external_validation(pdf, executable):
         return check('FAIL', 'VERAPDF_UNAVAILABLE_OR_FAILED')
 
 
-def probe_dicom(data, directory, number):
-    path = directory/f'source-{number}.dcm'
-    path.write_bytes(data)
+PROBE_SCRIPT = Path(__file__).with_name('archive_dicom_probe.py')
+PROBE_TIMEOUT = 30
+
+
+@contextmanager
+def probe_session(directory):
+    source = directory / 'source.dcm'
+    result = directory / 'result.json'
+    environment = dict(os.environ, OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1',
+                       MKL_NUM_THREADS='1', BLIS_NUM_THREADS='1')
+    server = None
+
+    def reply():
+        if not select([server.stdout], [], [], PROBE_TIMEOUT)[0]:
+            raise TimeoutError('DICOM probe deadline')
+        value = server.stdout.read(1)
+        if value not in (b'+', b'-'):
+            raise OSError('DICOM probe exited early')
+        return value == b'+'
+
+    def stop():
+        nonlocal server
+        if server is None:
+            return
+        try:
+            server.stdin.close()
+            try:
+                server.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                # A probe may still be running in the server's process group.
+                try:
+                    os.killpg(server.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                server.wait()
+        finally:
+            server.stdout.close()
+            server = None
+
+    def probe(data):
+        source.write_bytes(data)
+        try:
+            if server is not None:
+                try:
+                    server.stdin.write(b'?')
+                    success = reply()
+                except OSError:
+                    stop()
+                    raise
+            else:
+                with result.open('xb') as output:
+                    process = subprocess.run([sys.executable, str(PROBE_SCRIPT), str(source)],
+                        stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.DEVNULL,
+                        env=environment, timeout=PROBE_TIMEOUT, check=False)
+                    success = process.returncode == 0
+            if not success or result.stat().st_size > MAX_RESULT_BYTES:
+                raise ArchiveError('DICOM_PROBE_FAILED')
+            return strict_json(result.read_bytes())
+        except (ValueError, OSError, subprocess.TimeoutExpired, ArchiveError):
+            return {'status': 'UNREADABLE', 'fields': {}, 'references': [], 'digitalSignaturesPresent': None}
+        finally:
+            source.unlink(missing_ok=True)
+            result.unlink(missing_ok=True)
+
     try:
-        process = subprocess.run([sys.executable, str(Path(__file__).with_name('archive_dicom_probe.py')), str(path)],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30, check=False)
-        if process.returncode or len(process.stdout) > 16*1024**2:
-            raise ArchiveError('DICOM_PROBE_FAILED')
-        return strict_json(process.stdout)
-    except (ValueError, OSError, subprocess.TimeoutExpired, ArchiveError):
-        return {'status': 'UNREADABLE', 'fields': {}, 'references': [], 'digitalSignaturesPresent': None}
+        if sys.platform == 'linux':
+            try:
+                server = subprocess.Popen([sys.executable, str(PROBE_SCRIPT), '--serve', str(directory)],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    env=environment, start_new_session=True, bufsize=0)
+                if not reply():
+                    stop()
+            except OSError:
+                stop()
+        yield probe
     finally:
-        path.unlink(missing_ok=True)
+        stop()
+
+
+def attachment_bytes(reader, embedded):
+    # pypdf 7's EmbeddedFile.content uses get_data(), which permanently caches
+    # the decoded data in each encoded stream. Reuse its filter implementation
+    # directly and release this one resolved stream when the caller has its bytes.
+    stream = embedded._embedded_file
+    try:
+        return decode_stream_data(stream) if isinstance(stream, EncodedStreamObject) else stream.get_data()
+    finally:
+        reference = getattr(stream, 'indirect_reference', None)
+        if reference is not None:
+            key = (reference.generation, reference.idnum)
+            if reader.resolved_objects.get(key) is stream:
+                del reader.resolved_objects[key]
 
 
 def digest_file(path):
@@ -127,6 +212,19 @@ def digest_file(path):
     with Path(path).open('rb') as stream:
         for block in iter(lambda:stream.read(1024*1024),b''):value.update(block)
     return value.hexdigest()
+
+
+def check_signed_inventory(encoding, images, provenance):
+    if encoding != 'RFC8785_JCS':
+        raise ArchiveError('SIGNED_MANIFEST_NOT_CANONICAL')
+    receipt = strict_json(provenance)
+    events = receipt.get('events', []) if isinstance(receipt, dict) else []
+    first = events[0] if isinstance(events, list) and events and isinstance(events[0], dict) else {}
+    captured = [{key: image[key] for key in ('attachment', 'sourcePath', 'size', 'sha256')} for image in images]
+    receipt_matches = (first.get('event') == 'INGESTION'
+        and type(first.get('fileCount')) is int and first['fileCount'] == len(images)
+        and first.get('inputInventorySha256') == digest(rfc8785.dumps(captured)))
+    return check('PASS' if receipt_matches else 'FAIL', 'SIGNED_CAPTURED_INVENTORY_COMPARISON')
 
 
 def verify(pdf, sources=None, verapdf=None, trust_files=()):
@@ -137,29 +235,41 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
                    'issuerIdentity': 'UNKNOWN', 'fullMetadataSemanticAgreement': 'UNKNOWN', 'acquisitionAuthentication': 'UNKNOWN'}}
     checks = report['checks']
     checks['provenance'] = check('NOT_CHECKED', 'NO_AUTHENTICATED_ISSUER_EVIDENCE_IMPLEMENTED')
+    reader = None
     try:
         pdf = pdf.resolve(strict=True)
         report['pdfSha256'] = digest_file(pdf)
         reader = PdfReader(pdf, strict=True)
         if reader.is_encrypted:
             raise ArchiveError('ENCRYPTED_PDF_NOT_PROFILE_CONFORMING')
-        attachments, relationships = {}, {}
-        total = 0
+        attachments = {}
         for embedded in reader.attachment_list:
             name = embedded.name
             if name in attachments:
                 raise ArchiveError('DUPLICATE_ATTACHMENT_NAME')
-            data = embedded.content
+            if len(attachments) >= MAX_ENTRIES:
+                raise ArchiveError('PACKAGE_LIMIT')
+            attachments[name] = embedded
+
+        total = 0
+        retained = {}
+        def read_attachment(name, *, keep=False):
+            nonlocal total
+            if name in retained:
+                return retained[name]
+            data = attachment_bytes(reader, attachments[name])
             if len(data) > MAX_FILE:
                 raise ArchiveError('ATTACHMENT_SIZE_LIMIT')
             total += len(data)
-            if total > MAX_PACKAGE or len(attachments) >= MAX_ENTRIES:
+            if total > MAX_PACKAGE:
                 raise ArchiveError('PACKAGE_LIMIT')
-            attachments[name] = data
-            relationships[name] = str(embedded.associated_file_relationship)
-        manifest_bytes = attachments.get('manifest.json')
-        if manifest_bytes is None or 'manifest.sha256' not in attachments:
+            if keep:
+                retained[name] = data
+            return data
+
+        if 'manifest.json' not in attachments or 'manifest.sha256' not in attachments:
             raise ArchiveError('MANIFEST_OR_CHECKSUM_MISSING')
+        manifest_bytes = read_attachment('manifest.json', keep=True)
         manifest = strict_json(manifest_bytes)
         try:
             report['manifestEncoding'] = 'RFC8785_JCS' if rfc8785.dumps(manifest) == manifest_bytes else 'LEGACY_JSON_BYTES'
@@ -176,7 +286,7 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
             raise ArchiveError('MANIFEST_SCHEMA_VIOLATION')
         checks['manifestSchema'] = check('PASS', 'LOCAL_PROFILE_SCHEMA')
         expected = (digest(manifest_bytes)+'  manifest.json\n').encode('ascii')
-        if attachments['manifest.sha256'] != expected:
+        if read_attachment('manifest.sha256', keep=True) != expected:
             raise ArchiveError('MANIFEST_CHECKSUM_MISMATCH')
         images = manifest['images']
         names = [i['attachment'] for i in images]
@@ -190,7 +300,9 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
         declared = set(names) | set(artifacts) | {'manifest.json', 'manifest.sha256'}
         if c2pa:
             policy = {'attachment': 'content-credentials.c2pa', 'schemaVersion': 1, 'scope': 'ARCHIVE_EXPORT', 'specification': '2.2'}
-            if strict_json(attachments.get('c2pa-policy.json', b'{}')) != policy or relationships.get('content-credentials.c2pa') != '/C2PA_Manifest':
+            if ('c2pa-policy.json' not in attachments or 'content-credentials.c2pa' not in attachments
+                    or strict_json(read_attachment('c2pa-policy.json', keep=True)) != policy
+                    or str(attachments['content-credentials.c2pa'].associated_file_relationship) != '/C2PA_Manifest'):
                 raise ArchiveError('INVALID_C2PA_DECLARATION')
             declared.add('content-credentials.c2pa')
             checks['c2pa'] = check('UNKNOWN', 'C2PA_ATTACHED_USE_C2PATOOL_FOR_CRYPTOGRAPHIC_VALIDATION')
@@ -201,18 +313,41 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
             declared.add('manifest.p7s')
         if set(names) & set(artifacts) or set(attachments) != declared:
             raise ArchiveError('ATTACHMENT_INVENTORY_MISMATCH')
-        for image in images:
-            data = attachments[image['attachment']]
-            if len(data) != image['size'] or digest(data) != image['sha256']:
-                raise ArchiveError('ORIGINAL_BYTES_MISMATCH')
-            if relationships[image['attachment']] != '/Source':
-                raise ArchiveError('ORIGINAL_ASSOCIATION_MISMATCH')
+        consumed = {'manifest.json', 'manifest.sha256'} | set(names)
+        required = {'dicom-metadata.json'} if manifest.get('metadataXmpVersion') == 1 else set()
+        if security:
+            required.update({'manifest.p7s', 'provenance.json', 'revocation.json'})
         for name, expected_hash in artifacts.items():
-            if digest(attachments[name]) != expected_hash:
+            if digest(read_attachment(name, keep=name in required)) != expected_hash:
                 raise ArchiveError('ARTIFACT_BYTES_MISMATCH')
+        consumed.update(artifacts)
+        for name in declared - consumed:
+            read_attachment(name, keep=name in required)
+
+        parsed, identity_mismatches = {}, 0
+        with tempfile.TemporaryDirectory(prefix='dicom-independent-') as directory, probe_session(Path(directory)) as probe:
+            for image in images:
+                name = image['attachment']
+                data = read_attachment(name)
+                if len(data) != image['size'] or digest(data) != image['sha256']:
+                    raise ArchiveError('ORIGINAL_BYTES_MISMATCH')
+                if str(attachments[name].associated_file_relationship) != '/Source':
+                    raise ArchiveError('ORIGINAL_ASSOCIATION_MISMATCH')
+                parsed[name] = evidence = probe(data)
+                del data
+                if evidence['status'] == 'PARSED':
+                    covered = ['SOPClassUID', 'SOPInstanceUID', 'StudyInstanceUID', 'SeriesInstanceUID',
+                               'Rows', 'Columns', 'NumberOfFrames', 'TransferSyntaxUID']
+                    for key in covered:
+                        if key in image['fields'] and str(image['fields'][key]) != evidence['fields'].get(key):
+                            identity_mismatches += 1
+                    if image['sopInstanceUID'] != evidence['fields'].get('SOPInstanceUID'):
+                        identity_mismatches += 1
         checks['preservationIntegrity'] = check('PASS', 'ALL_DECLARED_ATTACHMENTS_MATCH', originals=len(images), artifacts=len(artifacts))
         if security:
-            crls = strict_json(attachments['revocation.json']).get('crls', []) if 'revocation.json' in attachments else []
+            checks['capturedInventory'] = check_signed_inventory(
+                report['manifestEncoding'], images, retained['provenance.json'])
+            crls = strict_json(retained['revocation.json']).get('crls', []) if 'revocation.json' in attachments else []
             try:
                 dss = read_dss(reader)
             except (ValueError, TypeError, KeyError):
@@ -227,11 +362,11 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
             else:
                 checks['pdf.validationStore'] = check('NOT_APPLICABLE', 'NO_STANDARD_PDF_DSS_PRESENT')
             expected_issuer = security.get('issuerCertificateSha256')
-            for name, result in verify_cms(manifest_bytes, attachments['manifest.p7s'], trust_files, crls, expected_issuer).items():
+            for name, result in verify_cms(manifest_bytes, retained['manifest.p7s'], trust_files, crls, expected_issuer).items():
                 checks['manifest.'+name] = result
             for name, result in verify_pdf(reader, pdf, trust_files, crls, expected_issuer).items():
                 checks['pdf.'+name] = result
-            checks['manifest.timestamp'] = verify_timestamp(attachments['manifest.p7s'], trust_files, crls)
+            checks['manifest.timestamp'] = verify_timestamp(retained['manifest.p7s'], trust_files, crls)
             fields = [field for field in (reader.get_fields() or {}).values() if field.get('/FT') == '/Sig'
                       and field['/V'].get_object().get('/SubFilter') != '/ETSI.RFC3161']
             if len(fields) == 1:
@@ -249,8 +384,8 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
                 missing_timestamp = any(checks[key]['code'] == 'NO_RFC3161_SIGNATURE_TIMESTAMP' for key in ['manifest.timestamp', 'pdf.timestamp'])
                 checks['requestedProtection'] = check('FAIL' if missing_timestamp else timestamp_status, 'BOTH_SIGNATURE_TIMESTAMPS_REQUIRED')
             authenticated = all(checks.get(key, {}).get('status') == 'PASS' for key in
-                ['manifest.signature', 'manifest.certificateTrust', 'manifest.revocation',
-                 'pdf.signature', 'pdf.coverage', 'pdf.certificateTrust', 'pdf.revocation'])
+                ['capturedInventory', 'preservationIntegrity', 'manifest.signature', 'manifest.keyPolicy', 'manifest.certificateTrust', 'manifest.revocation',
+                 'pdf.signature', 'pdf.keyPolicy', 'pdf.coverage', 'pdf.certificateTrust', 'pdf.revocation'])
             report['assurance'] = 'EXPORT_AUTHENTICATED' if authenticated else 'INTEGRITY_ONLY'
             if authenticated:
                 report['claims']['issuerIdentity'] = 'PASS'
@@ -273,8 +408,8 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
         if property_text('inventoryJson') != manifest_bytes.decode('utf-8'):
             raise ArchiveError('XMP_MANIFEST_MISMATCH')
         if manifest.get('metadataXmpVersion') == 1:
-            metadata_bytes = attachments['dicom-metadata.json']
-            if property_text('metadataVersion') != '1' or property_text('metadataJson') != metadata_bytes.decode('utf-8') or property_text('metadataSha256') != digest(metadata_bytes):
+            metadata_bytes = retained['dicom-metadata.json']
+            if property_text('metadataVersion') != '1' or property_text('metadataJson') != metadata_bytes.decode('utf-8') or property_text('metadataSha256') != artifacts['dicom-metadata.json']:
                 raise ArchiveError('FULL_XMP_METADATA_MISMATCH')
         checks['xmpConsistency'] = check('PASS', 'EXACT_ATTACHMENT_TEXT_AND_HASHES')
         if sources is None:
@@ -284,23 +419,9 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
             matches = set(inventory) == set(paths)
             for image in images:
                 path = inventory.get(image['sourcePath'])
-                if path is None or path.stat().st_size != len(attachments[image['attachment']]) or digest_file(path) != digest(attachments[image['attachment']]):
+                if path is None or path.stat().st_size != image['size'] or digest_file(path) != image['sha256']:
                     matches = False
             checks['inputReconciliation'] = check('PASS' if matches else 'FAIL', 'EXTERNAL_SUPPLIED_SET_COMPARISON', supplied=len(inventory))
-        parsed, identity_mismatches = {}, 0
-        with tempfile.TemporaryDirectory(prefix='dicom-independent-') as directory:
-            for number, image in enumerate(images):
-                evidence = probe_dicom(attachments[image['attachment']], Path(directory), number)
-                parsed[image['attachment']] = evidence
-                if evidence['status'] == 'PARSED':
-                    covered = ['SOPClassUID', 'SOPInstanceUID', 'StudyInstanceUID', 'SeriesInstanceUID',
-                               'Rows', 'Columns', 'NumberOfFrames', 'TransferSyntaxUID']
-                    for key in covered:
-                        if key in image['fields'] and str(image['fields'][key]) != evidence['fields'].get(key):
-                            identity_mismatches += 1
-                    actual_uid = evidence['fields'].get('SOPInstanceUID')
-                    if image['sopInstanceUID'] != actual_uid:
-                        identity_mismatches += 1
         unreadable = sum(p['status'] != 'PARSED' for p in parsed.values())
         report['sourceEvidence'] = [{'attachment': name, 'readability': evidence['status'],
             'digitalSignaturesPresent': evidence['digitalSignaturesPresent'],
@@ -318,12 +439,20 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
             if uid:
                 by_uid[uid].append(image['attachment'])
         duplicates = {uid: names for uid, names in by_uid.items() if len(names) > 1}
-        if not unreadable and {k: sorted(v) for k, v in duplicates.items()} != {k: sorted(v) for k, v in manifest['duplicateInstanceUIDs'].items()}:
-            raise ArchiveError('DUPLICATE_UID_INVENTORY_MISMATCH')
+        readable = {name for name, evidence in parsed.items() if evidence['status'] == 'PARSED'}
+        declared_duplicates = manifest['duplicateInstanceUIDs']
+        for uid, known_names in duplicates.items():
+            if set(known_names) != (set(declared_duplicates.get(uid, [])) & readable):
+                raise ArchiveError('DUPLICATE_UID_INVENTORY_MISMATCH')
+        for uid, declared_names in declared_duplicates.items():
+            if (not set(declared_names) <= parsed.keys()
+                    or set(declared_names) & readable != set(by_uid.get(uid, []))):
+                raise ArchiveError('DUPLICATE_UID_INVENTORY_MISMATCH')
         def ref_key(source, ref):
             return (source, ref['sopInstanceUID'], ref.get('sopClassUID'), tuple(ref.get('frames', [])))
         observed = Counter(ref_key(name, ref) for name, evidence in parsed.items() for ref in evidence['references'])
-        declared_refs = Counter(ref_key(ref['sourceAttachment'], ref) for ref in manifest['references'] if ref['status'] != 'unassessed')
+        declared_refs = Counter(ref_key(ref['sourceAttachment'], ref) for ref in manifest['references']
+                                if ref['status'] != 'unassessed' and ref['sourceAttachment'] in readable)
         unresolved, reference_errors = 0, 0
         for ref in manifest['references']:
             targets = by_uid.get(ref['sopInstanceUID'], [])
@@ -338,9 +467,15 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
                 elif any(f < 1 or f > int(fields.get('NumberOfFrames', 1)) for f in ref['frames']):
                     status = 'invalid-frame'
             unresolved += status != 'resolved'
-            if not unreadable and (status != ref['status'] or sorted(targets) != sorted(ref['resolvedAttachments'])):
+            declared_targets = set(ref['resolvedAttachments'])
+            if (ref['sourceAttachment'] not in parsed or not declared_targets <= parsed.keys()
+                    or declared_targets & readable != set(targets)):
                 reference_errors += 1
-        if not unreadable and observed != declared_refs:
+            # With unreadable candidates we can still prove ambiguity among two known
+            # targets. A declaration that lists only readable candidates is fully checkable.
+            if (len(targets) > 1 or declared_targets <= readable) and status != ref['status']:
+                reference_errors += 1
+        if observed != declared_refs:
             reference_errors += 1
         checks['explicitSopReferences'] = check('FAIL' if reference_errors else 'PARTIAL' if unreadable else 'UNRESOLVED' if unresolved else 'PASS',
             'EXPLICIT_UID_CLASS_FRAME_COUNTS_ONLY', unresolved=unresolved, mismatches=reference_errors)
@@ -349,6 +484,9 @@ def verify(pdf, sources=None, verapdf=None, trust_files=()):
     except Exception as error:
         code = str(error) if isinstance(error, ArchiveError) else 'UNREADABLE_OR_UNSAFE_PACKAGE'
         checks['packageRead'] = check('FAIL', code)
+    finally:
+        if reader is not None:
+            reader.close()
     statuses = [item['status'] for item in checks.values()]
     report['exitCode'] = 1 if 'FAIL' in statuses else 2 if 'UNKNOWN' in statuses else 0
     return report

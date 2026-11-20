@@ -7,7 +7,16 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.io.InputStreamReader;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.sax.SAXSource;
+import javax.xml.transform.stream.StreamResult;
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.XMLFilterImpl;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -38,6 +47,9 @@ final class PdfMetadata {
 
     /** Full source metadata is an additive property; older packets remain supported. */
     static void apply(PDDocument document,String inventoryJson,byte[] metadataBytes)throws Exception {
+        applyStream(document,inventoryJson,SourceContent.of(metadataBytes));
+    }
+    static void applyStream(PDDocument document,String inventoryJson,SourceContent metadata)throws Exception {
         document.setVersion(2.0f);
         document.getDocument().setVersion(2.0f);
         var catalog = document.getDocumentCatalog();
@@ -78,15 +90,16 @@ final class PdfMetadata {
         // One lossless JSON literal keeps the selected study/image fields and
         // attachment/page/hash mapping identical to the versioned manifest.
         text(dicom, "inventoryJson", inventoryJson);
-        if(metadataBytes!=null){
-            String sourceMetadata=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(metadataBytes)).toString();
+        if(metadata!=null){
             text(dicom,"metadataVersion","1");
-            text(dicom,"metadataSha256",HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(metadataBytes)));
-            text(dicom,"metadataJson",sourceMetadata);
+            text(dicom,"metadataSha256",metadata.digest().sha256());
+            text(dicom,"metadataJson","");
         }
         PDMetadata stream = new PDMetadata(document);
-        try(var compressed=stream.createOutputStream(COSName.FLATE_DECODE)){new XmpSerializer().serialize(xmp,compressed,true);}
+        try(var compressed=stream.createOutputStream(COSName.FLATE_DECODE)){
+            if(metadata==null)new XmpSerializer().serialize(xmp,compressed,true);
+            else writeFullPacket(xmp,metadata,compressed);
+        }
         catalog.setMetadata(stream);
 
         // Java supplies the standard sRGB profile; no machine-specific file path.
@@ -99,6 +112,36 @@ final class PdfMetadata {
             intent.setRegistryName("http://www.color.org");
             catalog.setOutputIntents(List.of(intent));
         }
+    }
+
+    /** XmpBox models literals as a single String. Stream the external literal into its empty element. */
+    private static void writeFullPacket(XMPMetadata xmp,SourceContent metadata,OutputStream destination)throws Exception {
+        var template=new ByteArrayOutputStream();
+        new XmpSerializer().serialize(xmp,template,true);
+        var parsers=SAXParserFactory.newInstance();
+        parsers.setNamespaceAware(true);
+        var filter=new XMLFilterImpl(parsers.newSAXParser().getXMLReader()){
+            @Override public void startElement(String uri,String local,String name,Attributes attributes)throws SAXException {
+                super.startElement(uri,local,name,attributes);
+                if(!NAMESPACE.equals(uri) || !"metadataJson".equals(local))return;
+                var decoder=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT);
+                try(var reader=new InputStreamReader(metadata.open(),decoder)){
+                    char[] buffer=new char[8193];
+                    for(int count;(count=reader.read(buffer,0,buffer.length-1))!=-1;){
+                        if(count>0 && Character.isHighSurrogate(buffer[count-1])){
+                            int low=reader.read();
+                            if(low<0 || !Character.isLowSurrogate((char)low))throw new IOException("Incomplete Unicode character in metadata");
+                            buffer[count++]=(char)low;
+                        }
+                        super.characters(buffer,0,count);
+                    }
+                }catch(IOException e){throw new SAXException(e);}
+            }
+        };
+        var serializer=TransformerFactory.newInstance().newTransformer();
+        serializer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION,"yes");
+        serializer.transform(new SAXSource(filter,new InputSource(new ByteArrayInputStream(template.toByteArray()))),new StreamResult(destination));
     }
 
     private static void text(XMPSchema schema, String name, String value) {

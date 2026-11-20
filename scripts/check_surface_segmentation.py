@@ -4,6 +4,9 @@
 import argparse
 import base64
 import json
+import shlex
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -14,6 +17,8 @@ from check_extension import extension_identity, manifest_for
 
 SURFACE_STORAGE = '1.2.840.10008.5.1.4.1.1.66.5'
 WEBGL2_SUPPORTED = "() => !!document.createElement('canvas').getContext('webgl2')"
+MESH_FIXTURE = Path('fixtures/surface-segmentation/asymmetric-tetrahedron.dcm')
+IMAGE_FIXTURE = Path('fixtures/expanded/sc-native-gray8.dcm')
 
 
 def capture(page, canvas):
@@ -148,22 +153,30 @@ def check_unavailable(page, original):
     return {'webglUnavailableMessage': True, 'originalByteExact': True}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--pdf', type=Path, default=Path('out/LASegSample.dcm.pdf'))
-    parser.add_argument('--original', type=Path, default=Path('in/LASegSample.dcm'))
-    parser.add_argument('--image-pdf', type=Path, default=Path('target/viewer-test-pdfs/sample-images.pdf'))
-    parser.add_argument('--viewer', type=Path, default=Path('src/main/resources/viewer.html'))
-    parser.add_argument('--extension', type=Path, default=Path('target/chrome-extension'))
-    parser.add_argument('--chromium', help='Browser executable. Defaults to Playwright Chromium.')
-    parser.add_argument('--report', type=Path, default=Path('target/surface-segmentation-checks'))
-    args = parser.parse_args()
-    report = args.report.resolve()
-    if not report.is_relative_to(Path('target').resolve()):
-        raise ValueError('Reports must stay under target/')
-    report.mkdir(parents=True, exist_ok=True)
-    extension = args.extension.resolve(strict=True)
-    manifest, _ = manifest_for(args.pdf)
+def prepare_archives(args, work):
+    if args.pdf is not None and args.image_pdf is not None:
+        return args.pdf, args.image_pdf
+    for kind, pdf, source in (('mesh', args.pdf, args.original), ('image', args.image_pdf, IMAGE_FIXTURE)):
+        if pdf is None:
+            inputs = work / kind
+            inputs.mkdir()
+            shutil.copyfile(source, inputs / source.name)
+    log_path = work.parent / 'fixture-build.log'
+    with log_path.open('w') as log:
+        result = subprocess.run([
+            'mvn', '-B', '-ntp', '-pl', 'app', '-am', 'test-compile', 'exec:java',
+            '-Djava.awt.headless=true', '-Dexec.classpathScope=test',
+            '-Dexec.mainClass=digital.thinkbox.dicompdf.SurfaceSegmentationFixtures',
+            f'-Dexec.args={shlex.quote(str(work))}',
+        ], stdout=log, stderr=subprocess.STDOUT)
+    if result.returncode:
+        tail = '\n'.join(log_path.read_text(errors='replace').splitlines()[-20:])
+        raise RuntimeError(f'Fixture build failed. Full log at {log_path}\n{tail}')
+    return args.pdf or work / 'mesh.pdf', args.image_pdf or work / 'image.pdf'
+
+
+def run_checks(args, report, extension, pdf, image_pdf):
+    manifest, _ = manifest_for(pdf)
     entry, = (entry for entry in manifest['images']
               if entry.get('fields', {}).get('SOPClassUID') == SURFACE_STORAGE)
     chromium = {'executable_path': args.chromium} if args.chromium else {'channel': 'chromium'}
@@ -191,9 +204,9 @@ def main():
                                if mode == 'extension' else args.viewer.resolve().as_uri())
                     page.goto(address)
                     assert page.evaluate(WEBGL2_SUPPORTED) == (mode != 'webgl-unavailable'), 'Unexpected WebGL support'
-                    open_archive(page, args.pdf)
+                    open_archive(page, pdf)
                     checks = (check_unavailable(page, args.original) if mode == 'webgl-unavailable'
-                              else check_mesh(page, entry, args.original, args.image_pdf))
+                              else check_mesh(page, entry, args.original, image_pdf))
                     assert not requests and not errors, {'requests': requests, 'errors': errors}
                     results[mode] = {'browserVersion': context.browser.version,
                                      'httpRequests': len(requests), 'pageErrors': len(errors), **checks}
@@ -201,6 +214,28 @@ def main():
                     context.close()
     (report / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
     print(json.dumps(results))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--pdf', type=Path, help='Existing mesh archive. By default Maven creates it from --original.')
+    parser.add_argument('--original', type=Path, default=MESH_FIXTURE,
+                        help=f'Mesh DICOM source for recovery checks. Defaults to {MESH_FIXTURE}.')
+    parser.add_argument('--image-pdf', type=Path,
+                        help=f'Existing image archive. By default Maven creates it from {IMAGE_FIXTURE}.')
+    parser.add_argument('--viewer', type=Path, default=Path('src/main/resources/viewer.html'))
+    parser.add_argument('--extension', type=Path, default=Path('target/chrome-extension'))
+    parser.add_argument('--chromium', help='Browser executable. Defaults to Playwright Chromium.')
+    parser.add_argument('--report', type=Path, default=Path('target/surface-segmentation-checks'))
+    args = parser.parse_args()
+    report = args.report.resolve()
+    if not report.is_relative_to(Path('target').resolve()):
+        raise ValueError('Reports must stay under target/')
+    report.mkdir(parents=True, exist_ok=True)
+    extension = args.extension.resolve(strict=True)
+    with tempfile.TemporaryDirectory(dir=report, prefix='fixtures-') as work:
+        pdf, image_pdf = prepare_archives(args, Path(work))
+        run_checks(args, report, extension, pdf, image_pdf)
 
 
 if __name__ == '__main__':

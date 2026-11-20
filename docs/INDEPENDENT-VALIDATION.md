@@ -42,13 +42,14 @@ or run from an attachment. Only a locally selected executable is used.
 | manifest.signature / pdf.signature | Independent OpenSSL CMS verification against actual extracted bytes and bound issuer certificate |
 | pdf.coverage | Byte ranges cover the entire PDF except its bound signature value |
 | certificateTrust / revocation | Explicit external PEM trust anchors; local certificate path, validity and retained signed CRLs |
-| provenance | Authenticated export only when signatures, explicit trust and revocation checks pass; acquisition remains UNKNOWN |
+| capturedInventory | The signed ingestion receipt’s file count and canonical ordered source-inventory digest match the manifest |
+| provenance | Authenticated export requires canonical signed manifest bytes, captured-inventory agreement, verified signatures, supported keys, explicit trust, revocation checks and PDF coverage |
 | trustedTimestamps | Independent ASN.1 extraction plus OpenSSL checks of both tokens, imprint, signature, TSA trust/CRLs and time |
 
 Full non-pixel metadata semantic equivalence is explicitly UNKNOWN. The XMP
 check establishes index/attachment consistency, not that every indexed attribute
 was decoded correctly. An unreadable original remains preserved and causes
-partial parsing/identity/reference coverage rather than disappearing from counts.
+partial parsing/identity/reference coverage. Disagreements demonstrated by the readable originals still fail their checks.
 
 All check statuses are PASS, FAIL, UNKNOWN or NOT_APPLICABLE. Exit 1 means a
 checked requirement failed; exit 2 means at least one check is UNKNOWN. Exit 0

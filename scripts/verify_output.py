@@ -18,15 +18,29 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--pdf", required=True, type=Path)
-    parser.add_argument("--report", type=Path, default=Path("target/verification"))
+    parser.add_argument("--report", type=Path, help="new report directory (default: a fresh run under target/verification)")
     parser.add_argument("--verapdf", default=os.environ.get("VERAPDF", "verapdf"))
     args = parser.parse_args()
     source = args.input.resolve(strict=True)
     pdf = args.pdf.resolve(strict=True)
-    report = args.report.resolve()
-    report.mkdir(parents=True, exist_ok=True)
+    if not source.is_dir():
+        parser.error("--input must be a directory")
+    project = Path(__file__).resolve().parents[1]
+    report = (args.report or project / "target/verification").resolve()
+    if report.is_relative_to(source) or (args.report and source.is_relative_to(report)):
+        parser.error("Report destination must be separate from the original source directory")
+    if (args.report and pdf.is_relative_to(report)) or report.is_relative_to((project / "out").resolve()):
+        parser.error("Report destination must be separate from the input PDF and converted-PDF directory")
+    if args.report is None:
+        report.mkdir(parents=True, exist_ok=True)
+        report = Path(tempfile.mkdtemp(prefix="run-", dir=report))
+    else:
+        try:
+            report.mkdir(parents=True)
+        except FileExistsError:
+            parser.error("Report destination already exists. Choose a new directory.")
     checked = []
-    with tempfile.TemporaryDirectory(prefix="dicompdf-extracted-") as temp:
+    with tempfile.TemporaryDirectory(prefix=".extracted-", dir=report) as temp:
         extracted = Path(temp)
         run(["pdfdetach", "-saveall", "-o", extracted, pdf])
         manifest = json.loads((extracted / "manifest.json").read_text(encoding="utf-8"))
@@ -68,12 +82,9 @@ def main():
         if viewer.exists():
             shutil.copy2(viewer, report / "viewer.html")
         else:
-            bundles = list(extracted.glob("*viewer*.zip"))
-            assert bundles, "No attached offline viewer"
-            shutil.copy2(bundles[0], report / bundles[0].name)
+            for bundle in extracted.glob("*viewer*.zip"):
+                shutil.copy2(bundle, report / bundle.name)
     # Poppler is independent of the Java generation library and renders every page.
-    for previous in report.glob("page-*.png"):
-        previous.unlink()
     run(["pdftoppm", "-r", "36", "-png", pdf, report / "page"])
     images = list(report.glob("page-*.png"))
     assert len(images) == max(pages), "Poppler page count differs from reference mapping"
@@ -95,6 +106,7 @@ def main():
                "originals": checked}
     (report / "verification.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(f"Verified {len(checked)} byte-identical originals, {len(images)} readable pages, PDF/A-4f compliant")
+    print(f"Reports: {report}")
 
 
 if __name__ == "__main__":

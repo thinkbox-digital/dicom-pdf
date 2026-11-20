@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {deflateRawSync} from 'node:zlib';
+import {decodeDicomAsync,parseImageDataset} from '../native-dicom.mjs';
 import {createDecoderClient,DecoderError} from '../decoder-client.mjs';
 import {createDecoderWorkerRuntime} from '../dicom-worker.mjs';
 
@@ -17,9 +19,9 @@ function decoded(bytes,imageId,previewEntry,sourceFrame){
 // Real structured cloning and transfer semantics exercise the boundary without a
 // browser. Runtime and client never share their input or output ArrayBuffers.
 class ProtocolWorker{
-  constructor({decode=decoded,cacheBytes,allocationBytes}={}){
+  constructor({decode=decoded,parseDataset,cacheBytes,allocationBytes}={}){
     this.listeners=new Map();this.sent=[];this.replies=[];this.terminated=false;
-    this.runtime=createDecoderWorkerRuntime({decode,cacheBytes,allocationBytes,postMessage:(message,transfers)=>{
+    this.runtime=createDecoderWorkerRuntime({decode,parseDataset,cacheBytes,allocationBytes,postMessage:(message,transfers)=>{
       const copy=structuredClone(message,{transfer:transfers});this.replies.push(copy);
       queueMicrotask(()=>this.emit('message',{data:copy}));
     }});
@@ -41,6 +43,31 @@ function harness(options={}){
   return {client,workers,get disposals(){return disposals;}};
 }
 const hasCode=code=>error=>error instanceof DecoderError&&error.code===code;
+
+test('native and deflated multiframe workers reuse parsing within budget and retain frame-specific VOI',async()=>{
+  const native=await readFile(new URL('../../fixtures/expanded/mr-enhanced-functional-groups.dcm',import.meta.url));
+  const deflatedHeader=await readFile(new URL('../../fixtures/expanded/ct-deflated-16.dcm',import.meta.url));
+  const datasetStart=bytes=>144+bytes.readUInt32LE(140);
+  const compressed=Buffer.concat([deflatedHeader.subarray(0,datasetStart(deflatedHeader)),deflateRawSync(native.subarray(datasetStart(native)))]);
+  for(const bytes of [native,compressed]){
+    for(const [budget,expected] of [[1024*1024,1],[bytes.length,2]]){
+      let parses=0;
+      const h=harness({decode:decodeDicomAsync,cacheBytes:budget,parseDataset:(...args)=>{parses++;return parseImageDataset(...args);}});
+      try{
+        const key=await sha(bytes);
+        const first=await h.client.decode(bytes,'first',null,1,{key});
+        const next=await h.client.decode(bytes,'second',null,2,{key});
+        assert.equal(first.image.windowCenter,1024);assert.equal(next.image.windowCenter,1000);
+        assert.equal(first.image.slope,1);assert.equal(next.image.slope,2);
+        assert.deepEqual(first.image.getPixelData(),next.image.getPixelData());
+        assert.equal(parses,expected);
+        h.client.clear();
+        await h.client.decode(bytes,'new-document',null,1,{key});
+        assert.equal(parses,expected+1);
+      }finally{h.client.destroy();}
+    }
+  }
+});
 
 test('source metadata and unsupported document reads cross the same worker cache without detaching originals',async()=>{
   const bytes=new Uint8Array(await readFile(new URL('../../fixtures/expanded/ct-explicit-le-16.dcm',import.meta.url))),before=bytes.slice(),key=await sha(bytes),h=harness();

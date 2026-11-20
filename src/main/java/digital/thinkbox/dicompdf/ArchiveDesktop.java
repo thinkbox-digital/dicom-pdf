@@ -108,7 +108,7 @@ public final class ArchiveDesktop {
         row(validation,r++,"Original file, directory or ZIP (optional)",originals,true,false,null);
         row(validation,r++,"Verification configuration (optional)",trust,false,false,"json");
         wide(validation,r++,note("Originals enable an external source comparison. Without them, that check is UNKNOWN. PDF/A validation uses the configured local veraPDF installation automatically."));
-        wide(validation,r,note("A verification configuration enables signature, timestamp and trust checks. The desktop uses its fixed local veraPDF installation. Verification is offline."));
+        wide(validation,r,note("A verification configuration enables signature, timestamp and trust checks. Set the veraPDF path in the configuration or VERAPDF, or install verapdf on PATH. Verification is offline."));
         modes.addTab("Create",wrap(creation,create));modes.setToolTipTextAt(0,"Create a new archival PDF from a folder of supplied files.");modes.setMnemonicAt(0,KeyEvent.VK_1);
         modes.addTab("Validate",wrap(validation,verify));modes.setToolTipTextAt(1,"Check an existing archive without changing it.");modes.setMnemonicAt(1,KeyEvent.VK_2);
         modes.setSelectedIndex("verify".equals(mode)?1:0);describe(modes,"Operation","Choose archive creation or validation.");
@@ -429,9 +429,9 @@ public final class ArchiveDesktop {
 
         VALIDATE
         Choose an archive; optionally select its original file, directory or ZIP.
-        The local veraPDF path is configured automatically. No tool is downloaded.
-        A verification configuration enables signature/timestamp/trust checks and
-        uses the desktop's fixed veraPDF setting. Verification makes no network requests.
+        The desktop uses the configuration's veraPDF executable when supplied, then
+        VERAPDF, then verapdf on PATH. A verification configuration also enables
+        signature, timestamp and trust checks. Verification runs offline.
         Signing credentials are not required for verification.
 
         RESULTS

@@ -13,6 +13,7 @@ import bz2
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from datetime import datetime, timezone
 import gzip
+import hashlib
 import json
 import lzma
 import multiprocessing
@@ -21,6 +22,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -144,28 +146,64 @@ class Budget:
             raise ValueError("Input expansion exceeds file/count/available-disk limits")
 
 
-def source_inventory(source: Path) -> list[dict]:
-    paths = sorted(source.rglob("*")) if source.is_dir() else [source]
+def copy_input(source: Path, destination: Path, size: int) -> str:
+    def open_source(path, flags):
+        fd = os.open(path, flags | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("Source is not a regular file")
+            return fd
+        except BaseException:
+            os.close(fd)
+            raise
+
+    digest = hashlib.sha256()
+    copied = 0
+    with open(source, 'rb', opener=open_source) as original, destination.open('xb') as output:
+        for block in iter(lambda: original.read(1024 * 1024), b''):
+            check_cancelled()
+            copied += len(block)
+            if copied > size:
+                raise ValueError("Source grew during staging")
+            digest.update(block)
+            output.write(block)
+    if copied != size:
+        raise ValueError("Source size changed during staging")
+    return digest.hexdigest()
+
+
+def source_inventory(source: Path, *, stage: Path | None = None, budget: Budget | None = None) -> list[dict]:
+    folder = source.is_dir() and not source.is_symlink()
+    paths = sorted(source.rglob("*")) if folder else [source]
     result = []
+    if stage is not None:
+        stage.mkdir()
     for path in paths:
         check_cancelled()
-        if path.is_symlink() or not (path.is_file() or path.is_dir()):
+        info = path.lstat()
+        relative = path.relative_to(source) if folder else Path(path.name)
+        if stat.S_ISDIR(info.st_mode):
+            if stage is not None:
+                (stage / relative).mkdir()
+            continue
+        if not stat.S_ISREG(info.st_mode):
             raise ValueError("Source contains a symbolic link or special file")
-        if path.is_file():
-            result.append({"path": path.relative_to(source).as_posix() if source.is_dir() else path.name,
-                           "size": path.stat().st_size, "sha256": archives.fingerprint(path)})
+        if stage is None:
+            sha256 = archives.fingerprint(path)
+        else:
+            budget.reserve([info.st_size])
+            sha256 = copy_input(path, stage / relative, info.st_size)
+        result.append({"path": relative.as_posix(), "size": info.st_size, "sha256": sha256})
     if not result:
         raise ValueError("Input contains no ordinary files")
     return result
 
 
-def unpack(source: Path, destination: Path, kind: str, budget: Budget) -> None:
+def unpack(source: Path, destination: Path, kind: str, budget: Budget) -> dict | None:
     if destination.exists() or destination.is_symlink():
         raise ValueError("Archive expansion path collides with an existing input")
     if kind == "zip":
-        with zipfile.ZipFile(source) as archive:
-            budget.reserve(info.file_size for info in archive.infolist() if not info.is_dir())
-        archives.safe_extract(source, destination)
+        return archives.safe_extract(source, destination, reserve=budget.reserve, check=check_cancelled)
     elif kind == "7z":
         members = samples.seven_members(source)
         budget.reserve(item["size"] for item in members if not item["directory"])
@@ -184,6 +222,7 @@ def unpack(source: Path, destination: Path, kind: str, budget: Budget) -> None:
                     raise ValueError("Compressed stream exceeds expansion limits")
                 output.write(block)
         budget.reserve([size])
+    return None
 
 
 def expand_nested(stage: Path, budget: Budget, depth=0) -> None:
@@ -203,28 +242,43 @@ def expand_nested(stage: Path, budget: Budget, depth=0) -> None:
             expand_nested(destination, budget, depth + 1)
 
 
-def stage_input(source: Path, stage: Path, expected: list[dict]) -> None:
+def stage_input(source: Path, stage: Path) -> tuple[dict | None, list[dict]]:
     budget = Budget()
-    if source.is_dir():
-        budget.reserve(item["size"] for item in expected)
-        shutil.copytree(source, stage)
-        if source_inventory(stage) != expected:
-            raise ValueError("Directory changed during staging")
+    receipt = None
+    info = source.lstat()
+    if stat.S_ISDIR(info.st_mode):
+        expected = source_inventory(source, stage=stage, budget=budget)
+    elif not stat.S_ISREG(info.st_mode):
+        raise ValueError("Source contains a symbolic link or special file")
     else:
         kind = file_kind(source)
         if kind == "rar":
             raise ValueError("RAR inputs are unsupported; unpack them separately first")
-        if kind in ARCHIVE_KINDS:
+        if kind == "zip":
+            inventory = unpack(source, stage / "contents", kind, budget)
+            expected = [{"path": source.name, "size": info.st_size, "sha256": inventory["archiveSha256"]}]
+            receipt = {"schemaVersion": 1, "kind": "ZIP_IMPORT", "basis": "LOCAL_CONTAINER_EXTRACTION",
+                       "sourceName": source.name, "sourceBytes": info.st_size,
+                       "sourceSha256": inventory["archiveSha256"], "containerEmbedded": False,
+                       "memberRoot": "contents/", "memberCount": inventory["fileCount"]}
+        elif kind in ARCHIVE_KINDS:
+            expected = source_inventory(source)
             unpack(source, stage, kind, budget)
         else:
-            budget.reserve([source.stat().st_size])
-            stage.mkdir()
-            shutil.copyfile(source, stage / source.name)
-            if source_inventory(stage) != expected:
-                raise ValueError("File changed during staging")
+            expected = source_inventory(source, stage=stage, budget=budget)
     expand_nested(stage, budget)
+    if receipt and budget.files != receipt["memberCount"]:
+        # For nested expansion keep the outer ZIP and its original membership.
+        budget.reserve([expected[0]["size"]])
+        container_directory = stage / "containers"
+        container_directory.mkdir()
+        copied = copy_input(source, container_directory / source.name, expected[0]["size"])
+        if copied != expected[0]["sha256"]:
+            raise ValueError("Original ZIP changed during staging")
+        receipt = None
     if source_inventory(source) != expected:
         raise ValueError("Original input changed during staging")
+    return receipt, expected
 
 
 def select_inputs(root: Path, sample: str | None, *, allow_empty=False, allow_missing=False) -> list[Path]:
@@ -355,24 +409,36 @@ def run_job(source: Path, output: Path, report: Path, args, processors: int, *, 
         if (not output.parent.resolve().is_relative_to(output_root) or output.is_symlink()
                 or (output.exists() and not output.is_file())):
             raise ValueError("PDF output must be an ordinary file inside the output directory")
-        expected = source_inventory(source)
-        if any((item["size"], item["sha256"]) in args.protected_files for item in expected):
-            raise ValueError("Signing credentials and passphrases must be outside archival inputs")
-        result["sourceFiles"] = expected
         with tempfile.TemporaryDirectory(prefix="staging-", dir=report) as temporary:
             work = Path(temporary)
             source_role = args.source_role
             stage = work / "input"
+            receipt_path = work / "import-source.json"
             if example:
+                expected = source_inventory(source)
+                if any((item["size"], item["sha256"]) in args.protected_files for item in expected):
+                    raise ValueError("Signing credentials and passphrases must be outside archival inputs")
                 recovered = work / "recovered"
                 run_java(args, report, processors, "extract", source, recovered)
                 stage = recovered / "originals"
+                manifest = json.loads((recovered / "package/manifest.json").read_text(encoding="utf-8"))
                 if source_role is None:
-                    manifest = json.loads((recovered / "package/manifest.json").read_text(encoding="utf-8"))
                     if manifest.get("sourceRole") in SOURCE_ROLES:
                         source_role = manifest["sourceRole"]
+                previous_receipt = recovered / "package/import-source.json"
+                expected_receipt = (manifest.get("artifactSha256") or {}).get(previous_receipt.name)
+                if previous_receipt.exists() or expected_receipt:
+                    if (not previous_receipt.is_file() or previous_receipt.stat().st_size > 64 * 1024
+                            or archives.fingerprint(previous_receipt) != expected_receipt):
+                        raise ValueError("The previous archive's ZIP import receipt does not match its manifest")
+                    receipt_path = previous_receipt
             else:
-                stage_input(source, stage, expected)
+                receipt, expected = stage_input(source, stage)
+                if any((item["size"], item["sha256"]) in args.protected_files for item in expected):
+                    raise ValueError("Signing credentials and passphrases must be outside archival inputs")
+                if receipt:
+                    receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
+            result["sourceFiles"] = expected
             if args.protected_files:
                 # Staging copies files, so the Java path/hard-link checks alone
                 # cannot exclude credentials or passphrases from staged inputs.
@@ -385,6 +451,8 @@ def run_job(source: Path, output: Path, report: Path, args, processors: int, *, 
             result["sourceRole"] = source_role or ARCHIVAL_MASTER
             pending = work / "converted.pdf"
             options = ["--source-role", result["sourceRole"], "--c2pa", args.c2pa]
+            if receipt_path.is_file():
+                options.extend(["--import-provenance", str(receipt_path)])
             if args.pades == "on":
                 options.extend(["--security-config", str(args.security_config)])
             run_java(args, report, processors, "create", stage, pending, *options)
@@ -494,7 +562,7 @@ The repository default is target/dicom-regenerate/signing.json.
     parser.add_argument("--input", type=Path, help="override in/, or the examples/ root with --example")
     parser.add_argument("--output", type=Path,
                         help="override the PDF directory under out/, with examples in its examples/ subdirectory")
-    parser.add_argument("--jar", type=Path, default=PROJECT / "dist/dicom-pdf-0.19.0.jar")
+    parser.add_argument("--jar", type=Path, default=PROJECT / "dist/dicom-pdf-0.23.0.jar")
     parser.add_argument("--java", default="java")
     parser.add_argument("--source-role", choices=SOURCE_ROLES,
                         help="override the role (default: archival-master or the role declared by an example)")

@@ -4,15 +4,19 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import rfc8785
+import sys
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as XML
 
 from pydicom import Dataset, FileDataset, FileMetaDataset, dcmwrite
 from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, NameObject
 
-from archive_validator import verify, strict_json, PROFILE_SCHEMA, NS
+import archive_validator
+from archive_validator import verify, strict_json, check_signed_inventory, ArchiveError, PROFILE_SCHEMA, NS
 from jsonschema import Draft202012Validator
 
 
@@ -41,8 +45,10 @@ def source_bytes(value=1):
 
 
 def fixture(path, *, count=1, corrupt=False, wrong_metadata=False, extra=False,
-            wrong_role=False, invented_reference=False, unsafe_xml=False):
+            wrong_role=False, invented_reference=False, unsafe_xml=False, unreadable=False):
     sources = {f'image-{i}.dcm': source_bytes(i+1) for i in range(count)}
+    if unreadable:
+        sources[f'image-{count-1}.dcm'] = b''
     artifacts = {'inventory.txt': b'Synthetic inventory\n', 'profile.json': b'{}',
                  'field-mapping.json': b'{}', 'dicom-xmp.rng': b'<schema/>',
                  'RECOVERY.txt': b'Extract originals; compare SHA-256.\n'}
@@ -156,11 +162,66 @@ class IndependentArchiveTests(unittest.TestCase):
         fixture(self.pdf, invented_reference=True)
         self.assertEqual('FAIL', verify(self.pdf)['checks']['explicitSopReferences']['status'])
 
+    def test_unreadable_member_does_not_hide_a_known_reference_mismatch(self):
+        fixture(self.pdf, count=2, invented_reference=True, unreadable=True)
+        report = verify(self.pdf)
+        self.assertEqual('UNKNOWN', report['checks']['dicomReadability']['status'])
+        self.assertEqual('FAIL', report['checks']['explicitSopReferences']['status'])
+
+    def test_signed_ingestion_receipt_reconciles_ordered_canonical_source_inventory(self):
+        images = [dict(attachment='original-0001.dcm', sourcePath='scan.dcm', size=10, sha256='a'*64)]
+        receipt = {'event': 'INGESTION', 'fileCount': 1,
+                   'inputInventorySha256': hashlib.sha256(rfc8785.dumps(images)).hexdigest()}
+        def checked():
+            return check_signed_inventory('RFC8785_JCS', images, rfc8785.dumps({'events': [receipt]}))['status']
+        self.assertEqual('PASS', checked())
+        with self.assertRaises(ArchiveError):
+            check_signed_inventory('LEGACY_JSON_BYTES', images, b'{}')
+        receipt['fileCount'] = 2
+        self.assertEqual('FAIL', checked())
+        receipt['fileCount'] = 1
+        images[0]['sourcePath'] = 'other.dcm'
+        self.assertEqual('FAIL', checked())
+
     def test_source_relationship_and_unsafe_xml_are_not_accepted(self):
         fixture(self.pdf, wrong_role=True)
         self.assertEqual('ORIGINAL_ASSOCIATION_MISMATCH', verify(self.pdf)['checks']['packageRead']['code'])
         fixture(self.pdf, unsafe_xml=True)
         self.assertEqual(1, verify(self.pdf)['exitCode'])
+
+    def test_flate_attachment_does_not_keep_decoded_or_resolved_payloads(self):
+        data = b'original bytes' * 10_000
+        writer = PdfWriter()
+        embedded = writer.add_attachment('original.dcm', data)
+        stream = writer._add_object(embedded._embedded_file.flate_encode())
+        embedded.pdf_object['/EF'][NameObject('/F')] = stream
+        writer.write(self.pdf)
+        with PdfReader(self.pdf, strict=True) as reader:
+            attachment = next(reader.attachment_list)
+            stream = attachment._embedded_file
+            identity = stream.indirect_reference
+            self.assertEqual(data, archive_validator.attachment_bytes(reader, attachment))
+            self.assertIsNone(stream.decoded_self)
+            self.assertNotIn((identity.generation, identity.idnum), reader.resolved_objects)
+            self.assertEqual(data, archive_validator.attachment_bytes(reader, attachment))
+
+    @unittest.skipUnless(sys.platform == 'linux', 'preloaded probe server is available on Linux')
+    def test_timed_out_probe_is_unreadable_and_next_source_uses_fallback(self):
+        script = self.root / 'probe.py'
+        script.write_text(
+            "import sys, time\n"
+            "if sys.argv[1] == '--serve':\n"
+            "    sys.stdout.buffer.write(b'+'); sys.stdout.buffer.flush()\n"
+            "    if sys.stdin.buffer.read(1) == b'?': time.sleep(10)\n"
+            "else:\n"
+            "    print('{\"status\":\"PARSED\"}')\n"
+        )
+        with patch.object(archive_validator, 'PROBE_SCRIPT', script), patch.object(archive_validator, 'PROBE_TIMEOUT', 0.5):
+            with archive_validator.probe_session(self.root) as probe:
+                self.assertEqual('UNREADABLE', probe(b'first')['status'])
+                self.assertEqual('PARSED', probe(b'second')['status'])
+        self.assertFalse((self.root/'source.dcm').exists())
+        self.assertFalse((self.root/'result.json').exists())
 
     def test_strict_json_and_machine_readable_path_rules(self):
         for value in [b'{"a":1,"a":2}', b'{"a":NaN}', b'{"a":Infinity}']:
@@ -169,7 +230,7 @@ class IndependentArchiveTests(unittest.TestCase):
         schema = strict_json(PROFILE_SCHEMA.read_bytes())
         Draft202012Validator.check_schema(schema)
         validator = Draft202012Validator(schema['$defs']['path'])
-        for path in ['../a', 'x/../a', '/a', 'a/', 'a//b', 'a\\b', 'a\0b', './a']:
+        for path in ['../a', 'x/../a', '/a', 'a/', 'a//b', 'a\\b', 'a\0b', './a', 'a\n', 'a\t', 'a\x7f']:
             self.assertFalse(validator.is_valid(path), path)
         for path in ['a', 'dir/image.dcm', 'café/ภาพ.dcm', '.hidden']:
             self.assertTrue(validator.is_valid(path), path)

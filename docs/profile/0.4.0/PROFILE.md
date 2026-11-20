@@ -38,7 +38,9 @@ identifiers, source paths, thumbnails, or DICOM acquisition claims are copied
 into the C2PA assertions. Existing source metadata remains in its normal archive
 locations and can contain sensitive information.
 
-The attached `profile.json` and `dicom-xmp.rng` identify version 0.4.0. Other
+The attached `profile.json` and `dicom-xmp.rng` identify version 0.4.0. Current
+`RECOVERY.txt` identifies the same version and explains offline C2PA checks.
+Earlier 0.4.0 packages used the inherited 0.3.0 recovery instructions. Other
 profile resources remain inherited from 0.3.0. Consumers must recognize the new
 inventory exception explicitly; they must not ignore arbitrary extra attachments.
 

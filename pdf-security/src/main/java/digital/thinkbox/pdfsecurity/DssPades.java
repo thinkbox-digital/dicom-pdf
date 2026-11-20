@@ -98,6 +98,15 @@ public final class DssPades {
     public static Result verify(Path pdf,CertificatePolicy policy,String expectedCertificate,C2paProfile profile){
         return verify(pdf,policy,expectedCertificate,profile==null?null:C2pa.validatedStore(pdf,profile),profile);
     }
+
+    record CredentialVerification(Result pades, Map<String, SecurityReport.Check> credentials) {}
+
+    /** The caller owns the staged revision and keeps its bytes unchanged through both checks. */
+    static CredentialVerification verifyPrivateRevision(Path revision, CertificatePolicy policy, String expectedCertificate, C2paProfile profile) {
+        if (profile == null) return new CredentialVerification(verify(revision,policy,expectedCertificate,null,null),Map.of());
+        var store = C2pa.verifyStore(revision,profile);
+        return new CredentialVerification(verify(revision,policy,expectedCertificate,store.encoded(),profile),store.checks());
+    }
     private static Result verify(Path pdf,CertificatePolicy policy,String expectedCertificate,byte[] validatedC2pa,C2paProfile profile){
         var checks=new LinkedHashMap<String,SecurityReport.Check>();Instant best=null;boolean lta=false;
         try{

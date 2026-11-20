@@ -15,7 +15,11 @@ final class DesktopProcess {
     static List<String> javaCommand(String main,List<String> arguments){
         String binary=System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win")?"java.exe":"java";
         var result=new ArrayList<>(List.of(Path.of(System.getProperty("java.home"),"bin",binary).toString(),
-                "-Dfile.encoding=UTF-8","-cp",System.getProperty("java.class.path"),main));
+                "-Dfile.encoding=UTF-8"));
+        String compressionProperty=org.apache.pdfbox.filter.Filter.SYSPROP_DEFLATELEVEL;
+        String compression=System.getProperty(compressionProperty);
+        if(compression!=null)result.add("-D"+compressionProperty+"="+compression);
+        result.addAll(List.of("-cp",System.getProperty("java.class.path"),main));
         result.addAll(arguments);return List.copyOf(result);
     }
     boolean stopped(){return stopped;}

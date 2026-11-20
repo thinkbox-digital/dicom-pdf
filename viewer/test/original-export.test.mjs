@@ -66,14 +66,16 @@ test('DICOMDIR-relative layout and duplicate instance IDs remain distinct',async
   assert.notDeepEqual(files[repeated[0].zipPath],files[repeated[1].zipPath]);
 });
 
-test('selected and series ZIPs explicitly describe subsets without pretending the full manifest is included',async()=>{
+test('selected and series ZIPs carry only scoped records and a source-manifest digest',async()=>{
   const pack=await packageOf();
   for(const [scope,count] of [['selected',1],['series',2]]){
     const result=await buildOriginalsZip({...pack,scope,selectedIndex:1}),files=readStoredZip(result.bytes),inventory=JSON.parse(strFromU8(files['scope.json']));
     assert.equal(result.originals,count);assert.equal(inventory.completeOriginalInventory,false);assert.equal(inventory.originals.length,count);
-    assert.match(inventory.originalManifestDescribes,/only the selected subset/);assert.match(strFromU8(files['RECOVERY.txt']),/references to files outside this ZIP/);
-    assert.deepEqual(files['package/manifest.json'],pack.manifestBytes);assert.ok(files['package/manifest.sha256']);
-    assert.ok(!files['package/dicom-metadata.json'],'A subset must not imply that unrelated package supplements describe only this subset');
+    assert.equal(inventory.originalManifest,null);
+    assert.equal(inventory.sourceManifestSha256,await sha(pack.manifestBytes));
+    assert.equal(Object.keys(files).some(name=>name.startsWith('package/')),false);
+    assert.ok(!strFromU8(files['scope.json']).includes('OTHER/IMAGE001'));
+    assert.match(strFromU8(files['RECOVERY.txt']),/references to files outside this ZIP/);
     assert.equal(Object.keys(files).filter(name=>name.startsWith('originals/')).length,count);
   }
 });
@@ -194,4 +196,11 @@ test('invalid scopes, selections, missing checksums and oversized sources fail b
   await assert.rejects(buildOriginalsZip(noHash),failCode('INVALID_CHECKSUM'));
   const huge=new Uint8Array(128*1024*1024+1),large={entries:[{attachment:'original.dcm',sourcePath:'large.dcm',size:huge.length,sha256:'0'.repeat(64)}],attachments:{original:{filename:'original.dcm',content:huge}}};
   await assert.rejects(buildOriginalsZip(large),failCode('CHECKSUM_MISMATCH'));
+});
+test('ZIP32 preflight rejects declared sizes before reading original payloads',async()=>{
+  const entries=[0,1].map(index=>({attachment:String(index),sourcePath:String(index),size:0x80000000,sha256:'0'.repeat(64)}));
+  let reads=0;
+  const attachments=entries.map(entry=>({filename:entry.attachment,read(){reads++;return new Uint8Array();}}));
+  await assert.rejects(buildOriginalsZip({entries,attachments}),failCode('LIMIT_EXCEEDED'));
+  assert.equal(reads,0);
 });

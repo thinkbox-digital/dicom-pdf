@@ -10,18 +10,17 @@ record DesktopRequest(boolean creating,String input,String output,String sources
     DesktopRequest(boolean creating,String input,String output,String sources,String securityConfig,boolean timestamping,String importProvenance,boolean c2pa){this(creating,input,output,sources,securityConfig,timestamping,importProvenance,c2pa,"");}
     DesktopRequest(boolean creating,String input,String output,String sources,String securityConfig,boolean timestamping){this(creating,input,output,sources,securityConfig,timestamping,"",true);}
     DesktopRequest(boolean creating,String input,String output,String sources,String securityConfig,boolean timestamping,String importProvenance){this(creating,input,output,sources,securityConfig,timestamping,importProvenance,true);}
-    static final String VERAPDF="/home/lepore/downloads/tools/vera/verapdf";
     void checkSigning(String certificate,char[] password)throws Exception{
         if(!creating)return;
         if(!securityConfig.isBlank()){
             var config=SecurityConfiguration.forDesktop(requiredPath(securityConfig,"Signing configuration"),timestamping,passphraseFile);
             try(var identity=config.identityForEvidence()){
-                ArchiveSecurity.preflight(new ArchiveSecurity.Options(identity,config.policy,VERAPDF,config.protection,java.time.Clock.systemUTC(),config.timestampClient()),c2pa);
+                ArchiveSecurity.preflight(new ArchiveSecurity.Options(identity,config.policy,config.verapdf,config.protection,java.time.Clock.systemUTC(),config.timestampClient()),c2pa);
             }
         }else if(!certificate.isBlank()){
             var now=java.time.Instant.now();
             try(var identity=passphraseFile.isBlank()?digital.thinkbox.pdfsecurity.SigningIdentity.load(Path.of(certificate),password,null,now):digital.thinkbox.pdfsecurity.SigningIdentity.loadWithPassphraseFile(Path.of(certificate),Path.of(passphraseFile),null,now)){
-                ArchiveSecurity.preflight(new ArchiveSecurity.Options(identity,digital.thinkbox.pdfsecurity.CertificatePolicy.untrusted(now),VERAPDF,ArchiveSecurity.Protection.CMS_AND_PDF,java.time.Clock.systemUTC()),c2pa);
+                ArchiveSecurity.preflight(new ArchiveSecurity.Options(identity,digital.thinkbox.pdfsecurity.CertificatePolicy.untrusted(now),SecurityConfiguration.defaultValidator(),ArchiveSecurity.Protection.CMS_AND_PDF,java.time.Clock.systemUTC()),c2pa);
             }
         }
     }
@@ -72,7 +71,12 @@ record DesktopRequest(boolean creating,String input,String output,String sources
             for(String name:List.of("trustCertificates","supportingCertificates","crls","ocsps"))if(json.has(name)){
                 var paths=new com.google.gson.JsonArray();for(var item:json.getAsJsonArray(name))paths.add(parent.resolve(item.getAsString()).normalize().toString());json.add(name,paths);
             }
-            json.addProperty("verapdf",VERAPDF);Path copy=work.resolve("security.json");Files.writeString(copy,json.toString(),StandardOpenOption.CREATE_NEW);preparedConfig=copy.toString();
+            if(json.has("verapdf")){
+                String validator=json.get("verapdf").getAsString();
+                if(validator.isBlank())throw new IllegalArgumentException("Choose a nonempty veraPDF executable path.");
+                json.addProperty("verapdf",parent.resolve(validator).normalize().toString());
+            }
+            Path copy=work.resolve("security.json");Files.writeString(copy,json.toString(),StandardOpenOption.CREATE_NEW);preparedConfig=copy.toString();
         }
         return new DesktopRequest(creating,preparedInput,output,preparedSources,preparedConfig,timestamping,receipt,c2pa,passphraseFile);
     }
@@ -94,7 +98,7 @@ record DesktopRequest(boolean creating,String input,String output,String sources
                 args.addAll(List.of("--sources",original.toString()));
             }
             if(!securityConfig.isBlank())args.set(0,"verify-security");
-            else args.addAll(List.of("--verapdf",VERAPDF));
+            else args.addAll(List.of("--verapdf",SecurityConfiguration.defaultValidator()));
         }
         if(!securityConfig.isBlank()){
             Path config=requiredPath(securityConfig,"Security configuration");

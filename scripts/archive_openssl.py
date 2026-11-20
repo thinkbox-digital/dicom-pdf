@@ -6,10 +6,45 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from asn1crypto import cms as asn1cms, tsp, x509
 
 
 def outcome(status, code):
     return {'status': status, 'code': code}
+
+
+def archive_signer_policy(signature, certificate_der):
+    signed = asn1cms.ContentInfo.load(signature)['content']
+    signers = signed['signer_infos']
+    if len(signers) != 1 or signed['encap_content_info']['content'].native is not None:
+        raise ValueError('Expected one detached archive signer')
+    signer = signers[0]
+    bindings = [a for a in signer['signed_attrs'] if a['type'].dotted == '1.2.840.113549.1.9.16.2.47']
+    if signer['digest_algorithm']['algorithm'].native != 'sha256' or len(bindings) != 1 or len(bindings[0]['values']) != 1:
+        raise ValueError('Missing supported signing certificate binding')
+    ids = tsp.SigningCertificateV2.load(bindings[0]['values'][0].dump())['certs']
+    if (len(ids) != 1 or ids[0]['hash_algorithm']['algorithm'].native != 'sha256'
+            or ids[0]['cert_hash'].native != hashlib.sha256(certificate_der).digest()):
+        raise ValueError('Signing certificate binding mismatch')
+    certificate = x509.Certificate.load(certificate_der)
+    usage = certificate.key_usage_value
+    if usage is not None and not {'digital_signature', 'non_repudiation'} & usage.native:
+        return outcome('FAIL', 'CERTIFICATE_KEY_USAGE_DISALLOWS_SIGNING')
+    key = certificate.public_key
+    if key.algorithm in ('rsa', 'rsassa_pss'):
+        valid = key['public_key'].parsed['modulus'].native.bit_length() >= 2048
+    elif key.algorithm == 'ec':
+        parameters = key['algorithm']['parameters']
+        if parameters.name == 'specified':
+            valid = parameters.chosen['order'].native.bit_length() >= 256
+        elif parameters.name == 'named' and parameters.chosen.native in (
+                'secp256r1', 'secp256k1', 'secp384r1', 'secp521r1'):
+            valid = True
+        else:
+            return outcome('UNKNOWN', 'EC_GROUP_ORDER_NOT_ASSESSED')
+    else:
+        valid = False
+    return outcome('PASS' if valid else 'FAIL', 'SUPPORTED_SIGNING_KEY_AND_USAGE')
 
 
 def verify_cms(content, signature, trust_files=(), crls=(), expected_certificate=None, at=None):
@@ -38,11 +73,12 @@ def verify_cms(content, signature, trust_files=(), crls=(), expected_certificate
             valid = run([*command, '-noverify'])
             if valid.returncode:
                 return {'signature': outcome('FAIL', 'OPENSSL_CMS_SIGNATURE_INVALID')}
-            if expected_certificate:
-                actual = run([executable, 'x509', '-in', str(signer_certificate), '-outform', 'DER'])
-                if actual.returncode or hashlib.sha256(actual.stdout).hexdigest() != expected_certificate:
-                    return {'signature': outcome('FAIL', 'OPENSSL_SIGNER_CERTIFICATE_BINDING_MISMATCH')}
+            actual = run([executable, 'x509', '-in', str(signer_certificate), '-outform', 'DER'])
+            if actual.returncode or (expected_certificate and hashlib.sha256(actual.stdout).hexdigest() != expected_certificate):
+                return {'signature': outcome('FAIL', 'OPENSSL_SIGNER_CERTIFICATE_BINDING_MISMATCH')}
+            key_policy = archive_signer_policy(signature, actual.stdout)
             result = {'signature': outcome('PASS', 'OPENSSL_VERIFIED_EXTRACTED_CONTENT'),
+                      'keyPolicy': key_policy,
                       'certificateTrust': outcome('UNKNOWN', 'NO_EXPLICIT_TRUST_ANCHORS'),
                       'revocation': outcome('UNKNOWN', 'NO_VERIFIED_REVOCATION_EVIDENCE')}
             if not trust_files:

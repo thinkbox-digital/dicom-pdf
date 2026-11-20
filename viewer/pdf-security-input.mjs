@@ -1,12 +1,50 @@
+import sax from 'sax';
+
 const instanceNamespace='http://ns.adobe.com/xap/1.0/mm/';
 
-async function instanceId(pdf){
-  const raw=(await pdf.getMetadata()).metadata?.getRaw();
-  if(!raw||raw.length>16*1024*1024||/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(raw))return undefined;
-  const xmp=new DOMParser().parseFromString(raw,'application/xml');
-  const ids=xmp.getElementsByTagNameNS(instanceNamespace,'InstanceID');
-  if(ids.length!==1||ids[0].childElementCount)return undefined;
-  return ids[0].textContent;
+// PDF.js's property map discards namespaces and repeated names. Scan its raw
+// XMP with namespace resolution while retaining only the unique identifier.
+export async function xmpInstanceId(raw){
+  if(typeof raw!=='string'||!raw||/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(raw))return undefined;
+  const parser=sax.parser(true,{xmlns:true,strictEntities:true});
+  let value,inside=false,depth=0,roots=0,opening=false;
+  const attributes=new Set();
+  const invalid=()=>{throw new Error('Unreadable or ambiguous XMP identifier.');};
+  parser.onerror=invalid;
+  parser.onopentagstart=()=>{opening=true;attributes.clear();};
+  parser.onattribute=attribute=>{
+    const key=attribute.uri+'\0'+attribute.local;
+    if(attributes.has(key)||attributes.size>=1024||attribute.name.split(':').length>2)invalid();
+    attributes.add(key);
+  };
+  parser.onopentag=tag=>{
+    opening=false;
+    if(inside||tag.name.split(':').length>2||++depth>128||depth===1&&++roots>1)invalid();
+    if(tag.uri===instanceNamespace&&tag.local==='InstanceID'){
+      if(value!==undefined)invalid();
+      value='';inside=true;
+    }
+  };
+  parser.onclosetag=()=>{inside=false;depth--;};
+  parser.ontext=parser.oncdata=text=>{
+    if(inside){
+      if(value.length+text.length>1024)invalid();
+      value+=text;
+    }
+  };
+  try{
+    let lastYield=performance.now();
+    for(let offset=0;offset<raw.length;offset+=16384){
+      parser.write(raw.slice(offset,offset+16384));
+      if(opening&&parser.position-parser.startTagPosition>65536)invalid();
+      if(performance.now()-lastYield>24){
+        await new Promise(resolve=>setTimeout(resolve,0));
+        lastYield=performance.now();
+      }
+    }
+    parser.close();
+    return value||undefined;
+  }catch{return undefined;}
 }
 
 export async function readPdfSecurity({pdf,blob,manifest,manifestBytes}){
@@ -26,7 +64,10 @@ export async function readPdfSecurity({pdf,blob,manifest,manifestBytes}){
     input.facts={signatures:[],encrypted:false};
     input.discoveryError=error?.message||'PDF signature and evidence discovery could not finish.';
   }
-  if(input.files?.credentials)input.instanceId=await instanceId(pdf).catch(()=>undefined);
+  if(input.files?.credentials){
+    try{input.instanceId=await xmpInstanceId((await pdf.getMetadata()).metadata?.getRaw());}
+    catch{input.instanceId=undefined;}
+  }
   return input;
 }
 

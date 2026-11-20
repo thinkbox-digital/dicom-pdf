@@ -18,7 +18,7 @@ and reports.
 You need Java 21 and a graphical desktop. Launch the desktop JAR in `dist/`:
 
 ```sh
-java -jar dist/dicom-pdf-0.19.0-desktop.jar
+java -jar dist/dicom-pdf-0.23.0-desktop.jar
 ```
 
 If you use IntelliJ, the **Archival DICOM Desktop** run configuration opens the
@@ -30,8 +30,9 @@ the lower right of the window.
 
 1. Open **Create**.
 2. Beside **File, directory or ZIP**, click **Browse…** and select your input.
-   Folders include their subfolders. A selected ZIP is unpacked for conversion;
-   its contents become the originals in the PDF.
+   Folders include their subfolders. For a selected ZIP, the PDF includes the
+   extracted members and a receipt with the ZIP's filename, byte size, SHA-256
+   and member count. Keep the ZIP if you need to recover the container itself.
 3. Choose an **Output PDF** outside the source folder.
 4. Leave **Include C2PA Content Credentials** checked for export provenance.
    Signing and timestamp options are explained below.
@@ -154,9 +155,13 @@ certificate records. Your signing certificate alone is not enough. See
 Successful creation fills in the validation fields for you. Validation never
 changes the archive. Without originals, the external comparison remains **UNKNOWN**.
 
-Desktop version `0.19.0` checks PDF/A conformance using a fixed installation
-path. For a different veraPDF installation, use the CLI `verify` command with
-`--verapdf /path/to/verapdf`.
+The desktop uses the veraPDF executable set in the selected JSON policy, then
+falls back to the `VERAPDF` environment variable and `verapdf` on PATH. The CLI
+`verify` command also accepts `--verapdf /path/to/verapdf`.
+
+Conversion and verification use Java's temporary directory for working copies.
+Set `DICOMPDF_SCRATCH_DIR` to choose another writable directory outside the
+originals and converted PDFs. For source builds, use a directory under `target/`.
 
 ### Read the results
 
@@ -187,7 +192,7 @@ in a browser. The viewer runs locally with its code and codecs included.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.61.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.68.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
@@ -260,8 +265,9 @@ arrow to choose a ZIP containing one file, a series, the current exam or all fil
 The viewer checks available recorded checksums during recovery.
 
 **Current exam** includes files with the selected record's supplied exam ID.
-It omits package metadata about other exams. Selected-file and series ZIPs can
-include the full manifest, which may describe other supplied records.
+Current-exam, selected-series and selected-file ZIPs include the selected
+originals, their recovery inventory and the SHA-256 of the source manifest.
+Choose **All supplied files** to include the full manifest and package supplements.
 
 Originals keep their metadata and pixels. None of these exports de-identifies
 medical records. If ZIP recovery reports conflicting paths, save files
@@ -353,13 +359,16 @@ available for recovery.
 Headerless Explicit VR Little Endian CT opens after the viewer verifies
 the dataset and the full native pixel length. Enhanced RGB with an empty
 ICC profile uses the stored RGB values. Grayscale images can use the first
-sampled VOI LUT when they have no valid source window. Larger frames are
-subject to the browser's working-memory and canvas limits.
+sampled VOI LUT when they have no valid source window. The viewer also applies
+sampled Presentation LUTs stored in images, including in existing archives.
+The converter preserves images with sampled grayscale LUTs and records a
+diagnostic PDF page. Larger frames are subject to the browser's working-memory
+and canvas limits.
 
-A single top-level grayscale LINEAR window with center and width both zero
-opens with an automatic window based on non-padding source pixels. The status
-bar identifies this display setting. Open an existing archive in the updated
-viewer to use it.
+The converter and viewer use a labeled automatic window when a supported
+grayscale image supplies a single top-level LINEAR window with center and
+width both zero. The calculation excludes padding pixels. Open an existing
+archive with the current viewer to use the fallback for interactive display.
 
 Choose a grayscale presentation state in the source list to open its
 referenced image and apply the saved contrast, scale-to-fit crop, rotation,
@@ -426,23 +435,42 @@ module. Application intermediates and test reports are in `target/app/`, and
 library artifacts are in `target/pdf-security/`. See the
 [library reuse guide](PDF_SECURITY_LIBRARY.md) for using signing in another project.
 
-For a release build, first advance the application minor version, reset the
-patch version to zero, and update distribution references as described in
-[AGENTS.md](../AGENTS.md). Run `mvn verify` to build and check the release.
-The self-contained desktop and command-line JARs are written to `dist/`.
-Java builds do not need Node.js. Viewer builds need Node/npm and Python 3:
+For a local release build, use Python 3 to advance the application version and
+update distribution references. Maven's `verify` phase publishes the checked
+JAR pair to `dist/` and retires superseded JARs. Set `VERAPDF` to the executable
+path to run the conformance checks below.
+
+```sh
+python3 scripts/bump_application_version.py
+mvn "-Ddicompdf.test.verapdf=$VERAPDF" verify
+python3 scripts/check_desktop_distribution.py --verapdf "$VERAPDF"
+```
+
+Viewer builds need Node/npm and Python 3:
 
 ```sh
 npm ci --prefix viewer
 npm --prefix viewer run build
 ```
 
-That viewer command builds the standalone viewer and extension together,
-advancing their minor version once. Build intermediates, reports, screenshots
-and recovered files belong in `target/`. Reserve `out/` for converted PDFs;
-keep supplied inputs in `in/` and synthetic fixtures in `fixtures/`.
+That viewer command stages the standalone viewer and extension together before
+publishing the pair and advancing their minor version. GitHub runs both version
+updaters after each branch push, verifies the runnable JARs, and commits the
+updated versions and standalone viewer back to the branch. Download the
+JARs, standalone viewer, extension ZIP and SHA-256 checksums from the workflow
+run's artifacts. Pull the automated commit with `git pull --rebase` before
+pushing again. Branch rules must allow GitHub Actions to write that commit.
 
-For command-line options, run `java -jar dist/dicom-pdf-0.19.0.jar --help`.
+Keep build intermediates, reports, screenshots and recovered files in `target/`.
+Reserve `out/` for converted PDFs. Keep supplied inputs in `in/` and synthetic
+fixtures in `fixtures/`. See [repository build rules](../AGENTS.md).
+
+The desktop and command-line converters use PDFBox Flate level 1 to reduce
+conversion time. To favor smaller archives, pass
+`-Dorg.apache.pdfbox.filter.deflatelevel=-1` before `-jar` to use the PDFBox
+default compression level. Both settings preserve the original attachment bytes.
+
+For command-line options, run `java -jar dist/dicom-pdf-0.23.0.jar --help`.
 The project uses Apache-2.0 with retained [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Further reading

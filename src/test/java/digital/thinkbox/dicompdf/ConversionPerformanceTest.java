@@ -13,6 +13,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ConversionPerformanceTest {
     @TempDir Path directory;
+    @Test void streamingSidecarDigestIsSharedOnlyAfterReachingEof() throws Exception {
+        byte[] bytes = "Müller <attribute> &".repeat(1024).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var opens = new AtomicInteger();
+        var source = new SourceContent(() -> { opens.incrementAndGet(); return new ByteArrayInputStream(bytes); });
+        try (var partial = source.openDigesting()) { assertEquals(bytes[0],partial.read()); }
+        try (var full = source.openDigesting()) { assertEquals(bytes.length,full.transferTo(OutputStream.nullOutputStream())); }
+        assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)),source.digest().sha256());
+        assertEquals(bytes.length,source.digest().length());
+        assertEquals(2,opens.get());
+    }
     @Test void snapshotsDecodeOnceAndSupportIndependentSeeking()throws Exception{
         byte[] bytes=new byte[300_000];new Random(27).nextBytes(bytes);var opens=new AtomicInteger();
         var source=new SourceContent(()->{opens.incrementAndGet();return new ByteArrayInputStream(bytes);});

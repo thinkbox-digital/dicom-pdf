@@ -49,7 +49,7 @@ in your browser and choose **Open PDF…**. The standalone viewer and Chrome
 extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. The current application distribution
-(`0.19.0`) embeds viewer `0.55.0` in new archives.
+(`0.23.0`) embeds viewer `0.68.0` in new archives.
 
 The updated viewer also opens DICOM Surface Segmentation attachments in a
 rotatable **3D surface** tab, including older exports such as `LASegSample.dcm`.
@@ -64,12 +64,12 @@ much of its signed data has been hashed. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
-Every future desktop/command-line JAR rebuild advances the application's minor
-version and resets the patch to zero. The current build is `0.19.0` and the next
-rebuild will be `0.20.0`.
-Both runnable JARs built together share that version. Update distribution names,
-launchers and documented commands together; archival profile versions remain
-independent of application build versions. See the [source build instructions](docs/GUIDE.md#building-from-source).
+Every branch push to GitHub triggers a release build that advances both minor
+versions and resets their patch versions to zero. The workflow tests both
+runnable JARs with veraPDF and publishes the JARs, standalone viewer, extension
+ZIP, and SHA-256 checksums as a workflow artifact. The
+[source build instructions](docs/GUIDE.md#building-from-source) cover local
+rebuilds and the automated version commit.
 
 ## Regenerate DICOM PDFs
 
@@ -108,12 +108,15 @@ reserve, including 512 MiB for JVM overhead. The run summary records the budgets
 Each top-level input produces one PDF. The full input basename is retained to
 avoid collisions: `image.dcm` becomes `out/image.dcm.pdf`, `exam.zip` becomes
 `out/exam.zip.pdf`, and a folder `series/` becomes `out/series.pdf`. Folders
-include their subfolders; extensionless inputs are included. ZIP and 7z archives
-are safely unpacked for conversion, as are individual GZIP/BZIP2/XZ streams.
-Nested archives are retained in the PDF alongside their expanded contents,
-under `<archive-name>.contents/`. Supplied inputs stay unchanged. Unsupported or
-unrenderable files are preserved according to the Java converter's behavior.
-RAR archives, unsafe paths, links and archive expansion collisions are rejected.
+include their subfolders and extensionless inputs. ZIP and 7z archives and
+individual GZIP/BZIP2/XZ streams are unpacked for conversion. An ordinary
+top-level ZIP puts its members under `contents/` and embeds an import receipt
+with the container's filename, size, SHA-256 and member count. If nested
+archives are expanded, the resulting PDF keeps the outer ZIP under
+`containers/` and each nested archive alongside its expanded contents under
+`<archive-name>.contents/`. Unsupported or unrenderable files remain available
+for recovery. RAR archives, unsafe paths, links and archive expansion collisions
+are rejected.
 
 The default mode, also available as `--new`, converts only top-level entries
 in `in/` whose matching PDF is missing from `out/`. Editing a file or adding a
@@ -121,8 +124,10 @@ file inside an already-converted folder leaves its PDF in place. Use `--sample`
 with the entry name to rebuild one PDF, or `--all` to rebuild every input PDF.
 
 Example PDFs are rebuilt in place from their embedded originals under
-`examples/`. Pass a modality directory or a relative PDF path to `--example`
-to limit the selection. `--everything` also rebuilds the example PDFs in place.
+`examples/`. A hashed ZIP import receipt carries forward when the archive's
+recovered members match it. Pass a modality directory or a relative PDF path to
+`--example` to limit the selection. `--everything` also rebuilds the example PDFs
+in place.
 
 Existing matching PDFs are replaced only after a complete conversion succeeds.
 A failed conversion keeps the previous PDF and the script continues with the
@@ -200,7 +205,7 @@ For command-line conversion, extract the chosen ZIP into a folder under
 python3 -m zipfile -e \
   target/anonymized-in/exam.zip \
   target/anonymized-series
-java -jar dist/dicom-pdf-0.19.0.jar create \
+java -jar dist/dicom-pdf-0.23.0.jar create \
   --input target/anonymized-series \
   --output out/anonymized-test.pdf \
   --source-role deidentified-copy

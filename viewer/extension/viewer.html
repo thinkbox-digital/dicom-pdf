@@ -217,9 +217,9 @@
   <dialog id="originals-export-dialog" class="metadata-export-dialog" aria-labelledby="originals-export-title">
     <form method="dialog">
       <h2 id="originals-export-title">Save unchanged originals</h2>
-      <p>Recover the supplied files as a ZIP. Each original is checked against its recorded SHA-256 before saving. The ZIP includes recovery instructions and the package manifest.</p>
+      <p>Each original is checked against its recorded SHA-256 before saving. Every ZIP includes a list of its files and recovery instructions.</p>
       <div class="export-controls"><label>Files <select id="originals-export-scope"><option value="all">All supplied files</option><option value="study">Current exam</option><option value="series">Selected series</option><option value="selected">Selected file</option></select></label></div>
-      <p>Series and selected-file exports are subsets. For a complete handover, choose all supplied files.</p>
+      <p>All supplied files includes the full package manifest. Current exam, selected series and selected file include the source manifest’s SHA-256 and omit metadata about other files.</p>
       <p id="originals-export-status" role="status" aria-live="polite"></p>
       <div class="export-actions"><button id="originals-export-confirm" type="button" class="primary">Save ZIP</button><button id="originals-export-cancel" type="button">Cancel</button></div>
     </form>

@@ -66,6 +66,7 @@ class DesktopSigningTest {
         });server.start();
         try{
             var json=new com.google.gson.JsonObject();json.addProperty("protection","CMS_AND_PDF");json.addProperty("pkcs12",institution.pkcs12().toString());json.addProperty("passphraseFile",root.resolve("missing-password.txt").toString());
+            json.addProperty("verapdf",System.getProperty("dicompdf.test.verapdf"));
             json.addProperty("tsaUrl","http://127.0.0.1:"+server.getAddress().getPort()+"/tsa");
             for(var entry:Map.of("trustCertificates",trust,"supportingCertificates",trust,"crls",crl).entrySet()){
                 var paths=new com.google.gson.JsonArray();paths.add(entry.getValue().toString());json.add(entry.getKey(),paths);

@@ -5,7 +5,11 @@ export function createDecodedImageCache({maxBytes=64*1024*1024,onEvict}={}){
   const records=new Map(),notifications=[];let total=0,notifying=false;
   function byteSize(decoded){
     let bytes;
-    try{bytes=decoded.image.getPixelData().byteLength+(decoded.image.modalityLut?.values.byteLength??0)+(decoded.image.sampledVoiLut?.values.byteLength??0);}catch{throw new TypeError('Decoded image pixels are unavailable.');}
+    try{
+      const {image}=decoded;
+      bytes=image.getPixelData().byteLength+(image.modalityLut?.values.byteLength??0)
+        +(image.sampledVoiLut?.values.byteLength??0)+(image.presentationLut?.values.byteLength??0);
+    }catch{throw new TypeError('Decoded image pixels are unavailable.');}
     if(!Number.isSafeInteger(bytes)||bytes<0||bytes>maxBytes)throw new RangeError('The decoded image exceeds the cache byte budget.');
     return bytes;
   }

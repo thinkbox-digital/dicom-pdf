@@ -8,7 +8,7 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.stream.*;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.cos.*;
 import org.apache.pdfbox.pdmodel.*;
@@ -69,12 +69,14 @@ public final class PackageTools {
         final JsonArray images;
         private Path decodedOriginals;
         private int decodedCount;
+        private SourceContent metadataContent;
         Package(Path path) throws Exception {
             pdf = Loader.loadPDF(path.toFile(),org.apache.pdfbox.io.IOUtils.createTempFileOnlyStreamCache());
             try {
                 var names = pdf.getDocumentCatalog().getNames();
                 if (names == null || names.getEmbeddedFiles() == null) throw new IOException("PDF has no embedded-file inventory");
                 collect(names.getEmbeddedFiles(), files, new HashSet<>(), 0);
+                for (String name : files.keySet()) ArchivePath.checkAttachment(name);
                 manifestBytes = payload(requireFile("manifest.json"));
                 manifest = JsonParser.parseString(new String(manifestBytes, StandardCharsets.UTF_8)).getAsJsonObject();
                 int version = manifest.get("schemaVersion").getAsInt();
@@ -88,12 +90,22 @@ public final class PackageTools {
             if (file == null) throw new IOException("Missing attachment: " + name);
             return file;
         }
-        SourceContent original(String name)throws Exception{
-            if(decodedOriginals==null){Files.createDirectories(Path.of("target"));decodedOriginals=Files.createTempDirectory(Path.of("target"),"verified-originals-");}
+        SourceContent original(String name,Path sources)throws Exception{
+            if(decodedOriginals==null)decodedOriginals=SourceContent.scratchDirectory("verified-originals-",sources);
             // Repeated metadata inventories and raster decoding use this one decoded copy.
             // Every verify() call creates a new private directory; nothing is reused across archives/runs.
-            long available=Math.max(0,Files.getFileStore(decodedOriginals).getUsableSpace()-64L*1024*1024);
-            return content(requireFile(name)).snapshot(decodedOriginals.resolve("original-"+(decodedCount++)+".dcm"),available);
+            var original=content(requireFile(name));
+            try {
+                long available=Math.max(0,Files.getFileStore(decodedOriginals).getUsableSpace()-64L*1024*1024);
+                return original.snapshot(decodedOriginals.resolve("original-"+(decodedCount++)+".dcm"),available);
+            } catch (FileSystemException e) {
+                throw new SourceContent.ScratchUnavailable("Cannot access local snapshot: "+e.getMessage(),e);
+            }
+        }
+        SourceContent verifiedArtifact(String name) throws Exception {
+            if (!"dicom-metadata.json".equals(name)) return content(requireFile(name));
+            if (metadataContent == null) metadataContent = content(requireFile(name));
+            return metadataContent;
         }
         @Override public void close() throws IOException {
             try{pdf.close();}finally{if(decodedOriginals!=null)deleteTree(decodedOriginals);}
@@ -102,7 +114,7 @@ public final class PackageTools {
 
     public static String inspect(Path pdf) throws Exception {
         try (var pack = new Package(pdf)) {
-            StringBuilder text = new StringBuilder("DICOM 2D intraoral package inventory\n");
+            StringBuilder text = new StringBuilder("DICOM package inventory\n");
             text.append("Profile: ").append(string(pack.manifest, "profile", "legacy pilot"))
                 .append(" / ").append(string(pack.manifest, "profileVersion", "0.1.0"))
                 .append("; manifest schemaVersion ").append(pack.manifest.get("schemaVersion")).append('\n');
@@ -190,24 +202,25 @@ public final class PackageTools {
         Path staged = Files.createTempDirectory(parent, ".dicompdf-recovery-");
         int originals = 0, packageFiles = 0; boolean published = false;
         try (var pack = new Package(pdf)) {
-            Map<String, SourceContent> bytes = originals(pack);
             Set<String> names = new HashSet<>(); Set<Path> paths = new HashSet<>(); long total = 0;
             for (var item : pack.images) {
                 JsonObject image = item.getAsJsonObject();
                 String name = required(image, "attachment");
                 if (!names.add(name)) throw new IOException("Duplicate original attachment mapping: " + name);
-                SourceContent data = bytes.get(name);
-                if (!matches(image, data)) throw new IOException("Original checksum/size mismatch: " + name);
-                Path target = safeResolve(staged.resolve("originals"), required(image, "sourcePath"));
+                Path target = ArchivePath.resolve(staged.resolve("originals"), required(image, "sourcePath"));
                 if (!paths.add(target)) throw new IOException("Duplicate original recovery path: " + target);
-                total = Math.addExact(total,data.digest().length());
-                data.writeTo(target);
+                long expectedSize = image.get("size").getAsLong();
+                if (expectedSize < 0) throw new IOException("Invalid original size: " + name);
+                Files.createDirectories(target.getParent());
+                var copy = content(pack.requireFile(name)).snapshot(target,expectedSize);
+                if (!matches(image, copy)) throw new IOException("Original checksum/size mismatch: " + name);
+                total = Math.addExact(total,copy.digest().length());
                 if(!matches(image,SourceContent.file(target)))throw new IOException("Recovered original checksum mismatch");
                 originals++;
             }
             for (var item : pack.files.entrySet()) {
                 if (names.contains(item.getKey())) continue;
-                content(item.getValue()).writeTo(safeResolve(staged.resolve("package"), item.getKey())); packageFiles++;
+                content(item.getValue()).writeTo(ArchivePath.resolve(staged.resolve("package"), item.getKey())); packageFiles++;
             }
             // Files are recoverable even for the old pilot where RECOVERY.txt was absent.
             String recovery = "Recovered original bytes are under originals/ using manifest sourcePath values.\n"
@@ -222,6 +235,9 @@ public final class PackageTools {
     }
 
     public static Verification verify(Path pdf, Path sources, String verapdf) {
+        return verify(pdf, sources, verapdf, null);
+    }
+    static Verification verify(Path pdf, Path sources, String verapdf, Map<String,Long> lengths) {
         Check pdfa = validatePdfa(pdf, verapdf);
         List<String> byteProblems = new ArrayList<>(), metadataProblems = new ArrayList<>(), externalProblems = new ArrayList<>();
         Check sourceCheck = new Check("NOT_CHECKED", List.of("Source inventory not yet read"));
@@ -232,23 +248,32 @@ public final class PackageTools {
         Check structureCheck=new Check("NOT_CHECKED",List.of("No versioned additional DICOM structural inventory supplied"));
         try (var pack = new Package(pdf)) {
             Map<String, SourceContent> originalBytes = new LinkedHashMap<>(); Set<String> seenNames = new HashSet<>(), seenPaths = new HashSet<>();
+            var pages = new ArrayList<PDPage>();
+            try {
+                pack.pdf.getPages().forEach(pages::add);
+                if (pages.size() != pack.pdf.getNumberOfPages()) metadataProblems.add("PDF page tree count differs from enumerated pages");
+            } catch (RuntimeException failure) { pages.clear(); metadataProblems.add("Cannot enumerate PDF reference pages"); }
             Set<Integer> seenPages = new HashSet<>(); long originalTotal = 0;
             for (var item : pack.images) {
                 JsonObject image = item.getAsJsonObject();
                 String name = required(image, "attachment"), relative = required(image, "sourcePath");
                 if (!seenNames.add(name)) byteProblems.add("Repeated attachment mapping: " + name);
+                try { ArchivePath.check(relative); } catch (IOException invalid) { metadataProblems.add("Unsafe manifest sourcePath for " + name); }
                 if (!seenPaths.add(relative)) byteProblems.add("Repeated sourcePath mapping: " + relative);
                 SourceContent data;
                 try {
-                    data = pack.original(name); originalTotal = Math.addExact(originalTotal,data.digest().length()); originalBytes.put(name, data);
+                    data = pack.original(name,sources); originalTotal = Math.addExact(originalTotal,data.digest().length()); originalBytes.put(name, data);
                     if (!matches(image, data)) byteProblems.add("SHA-256/size mismatch: " + relative);
+                    else if (lengths != null) lengths.put(name,data.digest().length());
+                } catch (SourceContent.ScratchUnavailable e) {
+                    throw e;
                 } catch (Exception e) {
                     byteProblems.add(relative + ": " + e.getMessage());
                     metadataProblems.add("Cannot check metadata for unavailable source " + relative);
                     if (sources != null) externalProblems.add("Cannot compare unavailable source: " + relative);
                     continue;
                 }
-                try { checkImage(pack, image, data, seenPages, metadataProblems); }
+                try { checkImage(pack, image, data, pages, seenPages, metadataProblems); }
                 catch (Exception e) { metadataProblems.add("Metadata/preview cannot be checked for " + relative + ": " + e.getMessage()); }
                 if (sources != null) {
                     try {
@@ -275,17 +300,17 @@ public final class PackageTools {
             else {
                 try { checkXmpAndProfile(pack, metadataProblems); }
                 catch (Exception e) { metadataProblems.add("XMP/profile cannot be checked: " + e.getMessage()); }
-                try { checkArtifactDigests(pack, seenNames, metadataProblems); }
+                try { checkArtifactDigests(pack, seenNames, metadataProblems, lengths); }
                 catch (Exception e) { metadataProblems.add("Artifact inventory cannot be checked: " + e.getMessage()); }
                 try { checkDisplayMapping(pack, metadataProblems); }
                 catch (Exception e) { metadataProblems.add("Display extension mapping cannot be checked: " + e.getMessage()); }
-                try {
-                    JsonElement duplicates = JSON.toJsonTree(ReferenceInventory.duplicates(originalBytes));
-                    if (!duplicates.equals(pack.manifest.get("duplicateInstanceUIDs"))) metadataProblems.add("Duplicate instance ID inventory differs from original DICOM bytes");
-                } catch (Exception e) { metadataProblems.add("Duplicate ID inventory cannot be checked: " + e.getMessage()); }
             }
             try {
-                List<Manifest.Reference> actualReferences = ReferenceInventory.resolve(originalBytes);
+                var analysis = ReferenceInventory.analyze(originalBytes);
+                if (pack.manifest.get("schemaVersion").getAsInt() == 2
+                        && !JSON.toJsonTree(analysis.duplicates()).equals(pack.manifest.get("duplicateInstanceUIDs")))
+                    metadataProblems.add("Duplicate instance ID inventory differs from original DICOM bytes");
+                List<Manifest.Reference> actualReferences = analysis.references();
                 JsonElement declaredReferences = pack.manifest.get("references");
                 if (pack.manifest.get("schemaVersion").getAsInt() == 2 && !JSON.toJsonTree(actualReferences).equals(declaredReferences))
                     metadataProblems.add("Reference inventory differs from explicit references in original DICOM bytes");
@@ -300,9 +325,14 @@ public final class PackageTools {
                 }
                 long unreadable = originalBytes.values().stream().filter(bytes -> DicomInput.fields(bytes).isEmpty()).count();
                 String coverage = unreadable + " original(s) have unreadable DICOM metadata; their references cannot be assessed. Study completeness is not inferred.";
-                if (originalBytes.size() != seenNames.size()) referenceCheck = new Check("NOT_CHECKED", List.of("Some original attachments are unavailable; reference resolution is incomplete", coverage));
-                else if (unresolved.isEmpty()) referenceCheck = new Check("PASS", List.of("No unresolved explicit DICOM references in readable originals", coverage));
-                else { unresolved.add(coverage); referenceCheck = new Check("UNRESOLVED", unresolved); }
+                if (!unresolved.isEmpty()) {
+                    unresolved.add(coverage);
+                    referenceCheck = new Check("UNRESOLVED", unresolved);
+                } else if (originalBytes.size() != seenNames.size() || unreadable > 0) {
+                    referenceCheck = new Check("NOT_CHECKED", List.of("Reference coverage is incomplete", coverage));
+                } else {
+                    referenceCheck = new Check("PASS", List.of("No unresolved explicit DICOM references in readable originals", coverage));
+                }
             } catch (Exception e) {
                 metadataProblems.add("Reference inventory cannot be checked: " + e.getMessage());
                 referenceCheck = new Check("NOT_CHECKED", List.of("Reference resolution failed: " + e.getMessage()));
@@ -323,13 +353,21 @@ public final class PackageTools {
                 catch(Exception failure){metadataProblems.add("DICOM structural inventory cannot be checked");structureCheck=new Check("NOT_CHECKED",List.of("Additional structural checks could not be completed"));}
             }
             metadataCheck = check(metadataProblems, "Profile, XMP, selected source fields, preview/frame/display mapping, page associations, duplicates and reference inventory agree with embedded originals");
+        } catch (SourceContent.ScratchUnavailable e) {
+            var incomplete=new Check("NOT_CHECKED",List.of(e.getMessage()));
+            sourceCheck=byteProblems.isEmpty()?incomplete:check(byteProblems,"");
+            externalCheck=externalProblems.isEmpty()?incomplete:check(externalProblems,"");
+            metadataCheck=metadataProblems.isEmpty()?incomplete:check(metadataProblems,"");
+            referenceCheck=incomplete;
+            inputCheck=incomplete;
+            structureCheck=incomplete;
         } catch (Exception e) {
             if (sourceCheck.status().equals("NOT_CHECKED")) sourceCheck = new Check("FAIL", List.of("Package cannot be read: " + e.getMessage()));
             if (sources != null && externalCheck.status().equals("NOT_CHECKED")) externalCheck = new Check("FAIL", List.of("External comparison unavailable because package cannot be read"));
             metadataCheck = new Check("FAIL", List.of("Metadata cannot be checked: " + e.getMessage()));
             referenceCheck = new Check("NOT_CHECKED", List.of("Explicit references cannot be resolved because package cannot be read"));
         }
-        return new Verification(pdfa, sourceCheck, externalCheck, metadataCheck, referenceCheck, inputCheck,structureCheck,digital.thinkbox.dicompdf.ArchiveC2pa.verify(pdf));
+        return new Verification(pdfa, sourceCheck, externalCheck, metadataCheck, referenceCheck, inputCheck,structureCheck,ArchiveC2pa.verify(pdf));
     }
     private static Check checkStructure(Package pack,Map<String,?> originals,List<String> problems)throws Exception{
         Manifest.Image[] sources=JSON.fromJson(pack.images,Manifest.Image[].class);
@@ -388,7 +426,7 @@ public final class PackageTools {
     private static void checkFullMetadata(Package pack, Map<String,?> originals, List<String> problems) throws Exception {
         var images = Arrays.asList(JSON.fromJson(pack.images, Manifest.Image[].class));
         boolean full = fullMetadataRequired(pack);
-        var stored = content(pack.requireFile("dicom-metadata.json"));
+        var stored = pack.verifiedArtifact("dicom-metadata.json");
         if (!DicomMetadataInventory.capturedSha256(images, originals, full).equals(stored.digest().sha256())) {
             // Packages can use an equivalent JSON serialization, such as different whitespace or member order.
             var expected = JSON.toJsonTree(full ? DicomMetadataInventory.capture(images, originals)
@@ -405,14 +443,15 @@ public final class PackageTools {
     }
     private static boolean fullMetadataRequired(Package pack){return pack.manifest.has("metadataXmpVersion");}
 
-    private static void checkImage(Package pack, JsonObject image, SourceContent data, Set<Integer> seenPages, List<String> problems) throws Exception {
+    private static void checkImage(Package pack, JsonObject image, SourceContent data, List<PDPage> pages, Set<Integer> seenPages, List<String> problems) throws Exception {
         String name = required(image, "attachment");
         Map<String,String> recordedDisplay = new LinkedHashMap<>();
         if (image.has("displayAdjustments") && image.get("displayAdjustments").isJsonObject())
             for (var item : image.getAsJsonObject("displayAdjustments").entrySet()) recordedDisplay.put(item.getKey(), item.getValue().getAsString());
         String creator = string(pack.manifest,"creator","");
         var actual = DicomInput.inspectForPreview(data, 1, recordedDisplay,
-                supportsExpandedReferenceFormats(creator), supportsWideReferenceFormats(creator));
+                supportsExpandedReferenceFormats(creator), supportsWideReferenceFormats(creator),
+                !creator.matches("dicom-pdf 0\\.(?:[0-9]|1[0-9]|2[01])\\.[0-9]+"));
         if ("dicom-2d-intraoral".equals(string(pack.manifest,"profile",""))) {
             var old = LegacyDicomInput.inspect(data.array());
             actual = new DicomInput.Result(old.fields(),old.image(),old.reason(),old.displayAdjustments());
@@ -424,8 +463,8 @@ public final class PackageTools {
         boolean rendered = actual.image() != null;
         if (rendered != "rendered".equals(required(image, "status"))) problems.add("Render acceptance differs: " + name);
         int page = image.get("referencePage").getAsInt();
-        if (page < 1 || page > pack.pdf.getNumberOfPages() || !seenPages.add(page)) { problems.add("Invalid/repeated reference page: " + name); return; }
-        PDPage preview = pack.pdf.getPage(page - 1); List<PDImageXObject> rasters = new ArrayList<>();
+        if (page < 1 || page > pages.size() || !seenPages.add(page)) { problems.add("Invalid/repeated reference page: " + name); return; }
+        PDPage preview = pages.get(page - 1); List<PDImageXObject> rasters = new ArrayList<>();
         if (preview.getResources() != null) for (COSName key : preview.getResources().getXObjectNames()) if (preview.getResources().getXObject(key) instanceof PDImageXObject raster) rasters.add(raster);
         if (rasters.size() != (rendered ? 1 : 0)) problems.add("Preview raster count differs: " + name);
         if (rendered && rasters.size() == 1 && pack.manifest.get("schemaVersion").getAsInt() == 2) {
@@ -478,48 +517,39 @@ public final class PackageTools {
         var metadata = pack.pdf.getDocumentCatalog().getMetadata();
         if (metadata == null) problems.add("Document XMP is missing");
         else {
-            var factory = DocumentBuilderFactory.newInstance(); factory.setNamespaceAware(true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, ""); factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            var builder = factory.newDocumentBuilder();
-            builder.setErrorHandler(new org.xml.sax.helpers.DefaultHandler() {
-                @Override public void error(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException { throw failure; }
-                @Override public void fatalError(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException { throw failure; }
-            });
-            org.w3c.dom.Document xml;
-            try(var input=PdfStreams.open(metadata)) { xml = builder.parse(input); }
-            catch (org.xml.sax.SAXException failure) { throw new IOException("The XMP packet is not well-formed safe XML"); }
-            for (String property : List.of("profile", "profileVersion", "sourceRole", "schemaVersion")) {
-                var values = xml.getElementsByTagNameNS(NS, property);
-                if (values.getLength() != 1 || !required(pack.manifest, property).equals(values.item(0).getTextContent())) problems.add("XMP " + property + " differs from manifest");
+            var sidecar = full ? pack.verifiedArtifact("dicom-metadata.json") : null;
+            try (var sidecarReader = full ? new InputStreamReader(sidecar.openDigesting(), StandardCharsets.UTF_8.newDecoder()) : null;
+                 var input = PdfStreams.open(metadata)) {
+                Map<String,Reader> expected = new LinkedHashMap<>();
+                for (String name : List.of("profile", "profileVersion", "sourceRole", "schemaVersion"))
+                    expected.put(name, new StringReader(required(pack.manifest, name)));
+                expected.put("inventoryJson", new InputStreamReader(new ByteArrayInputStream(pack.manifestBytes), StandardCharsets.UTF_8));
+                if (full) {
+                    expected.put("metadataVersion", new StringReader("1"));
+                    expected.put("metadataJson", sidecarReader);
+                    var artifacts = pack.manifest.getAsJsonObject("artifactSha256");
+                    expected.put("metadataSha256", new StringReader(artifacts == null ? "" : string(artifacts,"dicom-metadata.json","")));
+                }
+                compareXmp(input, expected, problems);
+                if (full) {
+                    var artifacts = pack.manifest.getAsJsonObject("artifactSha256");
+                    if (artifacts == null || !sidecar.digest().sha256().equals(string(artifacts,"dicom-metadata.json","")))
+                        problems.add("Full XMP metadata differs from manifest artifact SHA-256");
+                }
             }
-            var inventory = xml.getElementsByTagNameNS(NS, "inventoryJson");
-            if (inventory.getLength() != 1 || !new String(pack.manifestBytes, StandardCharsets.UTF_8).equals(inventory.item(0).getTextContent())) problems.add("XMP inventoryJson differs from exact manifest attachment");
-            var version=xml.getElementsByTagNameNS(NS,"metadataVersion");
-            var json=xml.getElementsByTagNameNS(NS,"metadataJson");
-            var digest=xml.getElementsByTagNameNS(NS,"metadataSha256");
-            if(full){
-                if(version.getLength()!=1||!"1".equals(version.item(0).getTextContent()))problems.add("XMP metadataVersion is missing or unsupported");
-                byte[] fullBytes=payload(pack.requireFile("dicom-metadata.json"));
-                String exact=StandardCharsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).decode(java.nio.ByteBuffer.wrap(fullBytes)).toString();
-                if(json.getLength()!=1||!exact.equals(json.item(0).getTextContent()))problems.add("XMP metadataJson differs from exact full metadata attachment");
-                String actual=sha256(fullBytes);
-                if(digest.getLength()!=1||!actual.equals(digest.item(0).getTextContent()))problems.add("XMP metadataSha256 differs from full metadata bytes");
-                var artifacts=pack.manifest.getAsJsonObject("artifactSha256");
-                if(artifacts==null||!artifacts.has("dicom-metadata.json")||!actual.equals(artifacts.get("dicom-metadata.json").getAsString()))problems.add("Full XMP metadata differs from manifest artifact SHA-256");
-            }else if(version.getLength()!=0||json.getLength()!=0||digest.getLength()!=0)problems.add("Full XMP metadata properties require an explicit manifest metadataXmpVersion");
         }
         for (String resource : List.of("dicom-xmp.rng", "profile.json", "field-mapping.json", "RECOVERY.txt")) {
             String directory=legacy?"/legacy-v2/":!full&&Set.of("dicom-xmp.rng","field-mapping.json").contains(resource)?"/legacy-metadata-v1/":"/";
-            try (InputStream input = PackageTools.class.getResourceAsStream(c2pa&&Set.of("profile.json","dicom-xmp.rng").contains(resource)?"/c2pa-"+resource:directory + resource)) {
+            try (InputStream input = PackageTools.class.getResourceAsStream(c2pa&&Set.of("profile.json","dicom-xmp.rng","RECOVERY.txt").contains(resource)?"/c2pa-"+resource:directory + resource)) {
                 byte[] attached = payload(pack.requireFile(resource));
                 boolean matches = input != null && Arrays.equals(input.readAllBytes(), attached);
                 // Application-specific example commands changed independently of the preservation profile.
                 // Only these exact historical bytes are an alternative; artifact SHA-256 checks still apply.
                 if (!matches && !legacy && resource.equals("RECOVERY.txt")) {
-                    try (InputStream previous = PackageTools.class.getResourceAsStream("/legacy-application-0.3.0/RECOVERY.txt")) {
-                        matches = previous != null && Arrays.equals(previous.readAllBytes(), attached);
+                    for (String version : List.of("0.21.0", "0.3.0")) {
+                        try (InputStream previous = PackageTools.class.getResourceAsStream("/legacy-application-" + version + "/RECOVERY.txt")) {
+                            if (previous != null && Arrays.equals(previous.readAllBytes(), attached)) { matches = true; break; }
+                        }
                     }
                 }
                 if (!matches) problems.add("Missing or different profile resource: " + resource);
@@ -528,10 +558,63 @@ public final class PackageTools {
         if (!"Schema".equals(pack.requireFile("dicom-xmp.rng").getCOSObject().getNameAsString(COSName.getPDFName("AFRelationship")))) problems.add("XMP schema lacks Schema relationship");
         COSBase associated = pack.pdf.getDocumentCatalog().getCOSObject().getDictionaryObject(COSName.getPDFName("AF"));
         if (!(associated instanceof COSArray array)) problems.add("Document associated-file array is missing");
-        else for (var file : pack.files.entrySet()) if (!contains(array, file.getValue().getCOSObject())) problems.add("Attachment missing from document AF: " + file.getKey());
+        else {
+            Set<COSBase> associatedFiles = Collections.newSetFromMap(new IdentityHashMap<>());
+            for (int i = 0; i < array.size(); i++) associatedFiles.add(array.getObject(i));
+            for (var file : pack.files.entrySet())
+                if (!associatedFiles.contains(file.getValue().getCOSObject())) problems.add("Attachment missing from document AF: " + file.getKey());
+        }
     }
 
-    private static void checkArtifactDigests(Package pack, Set<String> originals, List<String> problems) throws Exception {
+    /** Compare XML character data, including escaped text and split CDATA, against streamed UTF-8 sidecars. */
+    private static void compareXmp(InputStream input, Map<String,Reader> expected, List<String> problems) throws Exception {
+        var factory = XMLInputFactory.newDefaultFactory();
+        factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        factory.setProperty(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        var seen = new HashSet<String>();
+        var xml = factory.createXMLStreamReader(input);
+        char[] buffer = new char[8192];
+        try {
+            while (xml.hasNext()) {
+                int event = xml.next();
+                if (event == XMLStreamConstants.DTD) throw new IOException("The XMP packet is not well-formed safe XML");
+                if (event != XMLStreamConstants.START_ELEMENT || !NS.equals(xml.getNamespaceURI())) continue;
+                String name = xml.getLocalName();
+                Reader reference = expected.get(name);
+                if (reference == null) {
+                    if (Set.of("metadataJson","metadataVersion","metadataSha256").contains(name))
+                        problems.add("Full XMP metadata properties require an explicit manifest metadataXmpVersion");
+                    continue;
+                }
+                if (!seen.add(name) || !equalProperty(xml, reference, buffer)) problems.add("XMP " + name + " differs from archive metadata");
+            }
+            for (String name : expected.keySet())
+                if (!seen.contains(name)) problems.add("XMP " + name + " is missing");
+        } finally { xml.close(); }
+    }
+
+    private static boolean equalProperty(XMLStreamReader xml, Reader expected, char[] buffer) throws Exception {
+        boolean equal = true;
+        while (xml.hasNext()) {
+            switch (xml.next()) {
+                case XMLStreamConstants.END_ELEMENT -> { return equal && expected.read() == -1; }
+                case XMLStreamConstants.START_ELEMENT -> throw new IOException("Nested element in an XMP text property");
+                case XMLStreamConstants.CHARACTERS, XMLStreamConstants.CDATA, XMLStreamConstants.SPACE -> {
+                    char[] text = xml.getTextCharacters();
+                    int start = xml.getTextStart(), end = start + xml.getTextLength();
+                    while (equal && start < end) {
+                        int count = expected.read(buffer, 0, Math.min(end - start, buffer.length));
+                        if (count <= 0 || !Arrays.equals(text,start,start+count,buffer,0,count)) equal = false;
+                        else start += count;
+                    }
+                }
+            }
+        }
+        throw new IOException("Unterminated XMP text property");
+    }
+
+    private static void checkArtifactDigests(Package pack, Set<String> originals, List<String> problems, Map<String,Long> lengths) throws Exception {
         String expectedSidecar = sha256(pack.manifestBytes) + "  manifest.json\n";
         try {
             if (!expectedSidecar.equals(new String(payload(pack.requireFile("manifest.sha256")), StandardCharsets.US_ASCII))) problems.add("manifest.sha256 differs from exact manifest bytes");
@@ -560,10 +643,12 @@ public final class PackageTools {
         if (!expectedNames.equals(artifacts.keySet())) problems.add("Artifact SHA-256 inventory differs from actual package attachments");
         for (var artifact : artifacts.entrySet()) {
             try {
-                if (!content(pack.requireFile(artifact.getKey())).digest().sha256().equals(artifact.getValue().getAsString())) problems.add("Artifact SHA-256 mismatch: " + artifact.getKey());
+                var digest = pack.verifiedArtifact(artifact.getKey()).digest();
+                if (!digest.sha256().equals(artifact.getValue().getAsString())) problems.add("Artifact SHA-256 mismatch: " + artifact.getKey());
+                else if (lengths != null) lengths.put(artifact.getKey(),digest.length());
             } catch (Exception e) { problems.add("Artifact cannot be checked: " + artifact.getKey() + ": " + e.getMessage()); }
         }
-        for (String name : List.of("inventory.txt", "viewer.html", "dicom-xmp.rng", "profile.json", "field-mapping.json", "RECOVERY.txt"))
+        for (String name : List.of("inventory.txt", "dicom-xmp.rng", "profile.json", "field-mapping.json", "RECOVERY.txt"))
             if (!artifacts.has(name)) problems.add("Required profile artifact missing from manifest: " + name);
     }
 
@@ -589,14 +674,6 @@ public final class PackageTools {
     }
 
     private static Check check(List<String> problems, String success) { return problems.isEmpty() ? new Check("PASS", List.of(success)) : new Check("FAIL", problems); }
-    private static Map<String, SourceContent> originals(Package pack) throws Exception {
-        Map<String, SourceContent> originals = new LinkedHashMap<>();
-        for (var item : pack.images) {
-            String name = required(item.getAsJsonObject(), "attachment"); var data = content(pack.requireFile(name));
-            if (originals.put(name, data) != null) throw new IOException("Duplicate original attachment mapping: " + name);
-        }
-        return originals;
-    }
     private static boolean matches(JsonObject image, SourceContent source)throws Exception{
         return source!=null&&source.digest().length()==image.get("size").getAsLong()&&source.digest().sha256().equals(required(image,"sha256"));
     }
@@ -621,17 +698,8 @@ public final class PackageTools {
         return value.get(key).getAsString();
     }
     private static String string(JsonObject value, String key, String fallback) { return value.has(key) && !value.get(key).isJsonNull() ? value.get(key).getAsString() : fallback; }
-    private static Path safeResolve(Path root, String relative) throws IOException {
-        if (relative == null || relative.isBlank() || relative.indexOf('\\') >= 0 || relative.indexOf(':') >= 0) throw new IOException("Unsafe recovery path: " + relative);
-        Path path = Path.of(relative);
-        if (path.isAbsolute()) throw new IOException("Absolute recovery path: " + relative);
-        for (Path component : path) if (component.toString().equals("..") || component.toString().equals(".")) throw new IOException("Unsafe recovery path component: " + relative);
-        Path result = root.resolve(path).normalize();
-        if (!result.startsWith(root) || result.equals(root)) throw new IOException("Unsafe recovery path: " + relative);
-        return result;
-    }
     private static Path safeSource(Path input, String relative) throws IOException {
-        Path root = input.toRealPath(); Path candidate = safeResolve(root, relative);
+        Path root = input.toRealPath(); Path candidate = ArchivePath.resolve(root, relative);
         Path current = root;
         for (Path part : root.relativize(candidate)) { current = current.resolve(part); if (Files.isSymbolicLink(current)) throw new IOException("Symbolic link in source path: " + relative); }
         return candidate;

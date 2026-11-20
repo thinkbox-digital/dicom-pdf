@@ -140,6 +140,57 @@ class PackageToolsTest {
         assertEquals("FAIL", checked.metadataAccuracy().status(), "Preview pixels must match recorded source/frame/display rendering");
     }
 
+    @Test void invalidManifestPathsAndUnreadableReferenceCoverageAreExplicit() throws Exception {
+        Path input = temporary.resolve("input");
+        SyntheticFixtures.writeDeidentifiedCopy(input);
+        Files.createFile(input.resolve("empty.dcm"));
+        Path pdf = temporary.resolve("mixed.pdf");
+        DicomPdf.create(input, pdf);
+        assertEquals("NOT_CHECKED", PackageTools.verify(pdf, null, null).unresolvedReferences().status());
+        for (String path : List.of("a//b", "dir/", "/dir", "a/./b", "a/../b", "a\tb", "a\nb", "a\u007fb", "a:b", "a\\b")) {
+            assertThrows(java.io.IOException.class, () -> ArchivePath.check(path), path);
+        }
+        JsonObject changed = manifest(pdf);
+        changed.getAsJsonArray("images").get(0).getAsJsonObject().addProperty("sourcePath", "a\tb");
+        Path altered = temporary.resolve("invalid-path.pdf");
+        writeManifest(pdf, altered, changed);
+        var report = PackageTools.verify(altered, null, null);
+        assertTrue(report.metadataAccuracy().details().stream().anyMatch(d -> d.contains("Unsafe manifest sourcePath")));
+        assertThrows(java.io.IOException.class, () -> PackageTools.extract(altered, temporary.resolve("invalid-recovery")));
+        try (PDDocument document = Loader.loadPDF(pdf.toFile())) {
+            var attachment = document.getDocumentCatalog().getNames().getEmbeddedFiles().getNames().get("RECOVERY.txt");
+            String recovery = new String(attachment.getEmbeddedFileUnicode().toByteArray(), StandardCharsets.UTF_8);
+            assertTrue(recovery.startsWith("DICOM image preservation profile 0.4.0"));
+            assertTrue(recovery.contains("content-credentials.c2pa"));
+        }
+    }
+
+    @Test void profileVerificationAndRecoveryWorkWithoutAnEmbeddedViewer() throws Exception {
+        Path input = temporary.resolve("inputs");
+        SyntheticFixtures.writeDeidentifiedCopy(input);
+        Path generated = temporary.resolve("generated.pdf");
+        DicomPdf.create(input, generated, "archival-master", false);
+        Path staged = temporary.resolve("staged.pdf");
+        try (var document = Loader.loadPDF(generated.toFile())) {
+            var catalog = document.getDocumentCatalog();
+            var tree = catalog.getNames().getEmbeddedFiles();
+            var names = new TreeMap<>(tree.getNames());
+            var viewer = names.remove("viewer.html");
+            var associated = catalog.getCOSObject().getCOSArray(COSName.getPDFName("AF"));
+            for (int i = 0; i < associated.size(); i++) {
+                if (associated.getObject(i) == viewer.getCOSObject()) { associated.remove(i); break; }
+            }
+            tree.setNames(names);
+            document.save(staged.toFile());
+        }
+        var manifest = manifest(generated);
+        manifest.getAsJsonObject("artifactSha256").remove("viewer.html");
+        Path archive = temporary.resolve("no-viewer.pdf");
+        writeManifest(staged, archive, manifest);
+        assertEquals("PASS", PackageTools.verify(archive, input, null).metadataAccuracy().status());
+        assertEquals(1, PackageTools.extract(archive, temporary.resolve("recovered")).originals());
+    }
+
     @Test void malformedXmpDoesNotInvalidateIndependentSourceByteChecks() throws Exception {
         Path input = temporary.resolve("input"); SyntheticFixtures.writeDeidentifiedCopy(input);
         Path original = temporary.resolve("original.pdf"); DicomPdf.create(input, original);
@@ -207,7 +258,7 @@ class PackageToolsTest {
 
     @Test void recoveryCommandUpdatesPreserveExactHistoricalCompatibilityAndResourceDigests() throws Exception {
         Path input = temporary.resolve("input"); SyntheticFixtures.writeDeidentifiedCopy(input);
-        Path original = temporary.resolve("current-recovery.pdf"); DicomPdf.create(input, original);
+        Path original = temporary.resolve("current-recovery.pdf"); DicomPdf.create(input, original, "archival-master", false);
         byte[] current = Files.readAllBytes(Path.of("src/main/resources/RECOVERY.txt"));
         byte[] previous = Files.readAllBytes(Path.of("src/main/resources/legacy-application-0.3.0/RECOVERY.txt"));
         String text = new String(current, StandardCharsets.UTF_8);

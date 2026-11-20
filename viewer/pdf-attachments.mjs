@@ -1,5 +1,14 @@
 import {workingMemoryBytes} from './working-memory.mjs';
 
+export function recordedAttachmentDigest(manifest,file,source){
+  const digest=source?source.sha256:manifest?.artifactSha256?.[file.filename];
+  if(source&&manifest?.schemaVersion===2||digest!=null){
+    if(typeof digest!=='string'||!/^[a-f0-9]{64}$/i.test(digest))
+      throw new Error('No valid SHA-256 was recorded for this attachment.');
+  }
+  return digest;
+}
+
 /** One local PDF's attachment index and bounded cache of decoded bytes. */
 export async function openPdfAttachments(pdf) {
   const messages=pdf._transport.messageHandler;

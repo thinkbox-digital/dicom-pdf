@@ -13,17 +13,33 @@ a dedicated preview:
 
 Grayscale presentation states can apply supported windows, crop, orientation
 and annotations. Sampled Presentation LUTs in a presentation state remain
-unsupported. Sampled grayscale VOI LUTs in images are supported.
+unsupported. The viewer supports sampled grayscale Modality, VOI and
+Presentation LUTs stored in images, including in existing archives.
 
 Surface Segmentation previews need WebGL. Facets with more than three points
 are unsupported. See [supported formats](docs/GUIDE.md#image-support).
 
-## PDF reference images
+## Display differences
 
-The converter preserves files using the private GE 3D layout, HTJ2K images,
-Parametric Maps and Surface Segmentation without rendering them as PDF reference
-images. The interactive viewer can display HTJ2K images, supported Parametric Maps
-and supported Surface Segmentation meshes.
+| Object or display condition | PDF reference image | Interactive viewer |
+| --- | --- | --- |
+| Sampled grayscale LUTs stored in an image | Diagnostic page | Supported Modality, VOI and Presentation LUTs applied |
+| Grayscale `SIGMOID` window | Diagnostic page | Supported |
+| Native or RLE unsigned 16-bit RGB | Diagnostic page | Supported |
+| Private GE 3D layout | Diagnostic page | Depends on the stored encoding and pixel layout |
+| HTJ2K | Diagnostic page | Supported codestreams and layouts |
+| Parametric Map | Diagnostic page | Supported integer and native floating-point maps |
+| Surface Segmentation | Diagnostic page | WebGL mesh preview for supported facets |
+| Retired JPEG spectral selection and progressive transfer syntaxes | Depends on the Java provider | Outside current viewer support |
+| Video or waveform objects | Diagnostic page | Use a viewer for the object type |
+
+The PDF renderer limits each frame to 16,777,216 pixels. The interactive viewer
+limits frames to 33,554,432 pixels and also checks canvas dimensions and available
+memory. A supported top-level grayscale LINEAR window with center and width both
+zero uses an automatic window for PDF reference pages and interactive display.
+Deflated grayscale images can use the same padding-aware automatic window as
+native images. The [format matrix](docs/GUIDE.md#image-support) lists encodings,
+and the [synthetic fixtures](fixtures/README.md) describe tested cases.
 
 ## Input errors and recovery
 

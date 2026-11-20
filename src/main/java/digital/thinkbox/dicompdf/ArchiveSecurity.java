@@ -54,7 +54,8 @@ public final class ArchiveSecurity {
             Manifest manifest=DicomPdf.create(root,base,sourceRole,PackageLimits.ATTACHMENTS,PackageLimits.DOCUMENT,
                 data->{if(options.getIdentity().isCredentialSha256(data.digest().sha256()))throw new IOException("Signing credential material must not be supplied as archival input");},importReceipt,c2pa,true,progress);
             progress.accept("Checking preserved originals, metadata and PDF/A before signing…");
-            var validation=PackageTools.verify(base,root,options.verapdf());
+            var verifiedLengths=new HashMap<String,Long>();
+            var validation=PackageTools.verify(base,root,options.verapdf(),verifiedLengths);
             requirePreservation(validation);
             try(var document=Loader.loadPDF(base.toFile(),org.apache.pdfbox.io.IOUtils.createTempFileOnlyStreamCache())){
                 var files=files(document);
@@ -92,7 +93,8 @@ public final class ArchiveSecurity {
                 }
                 byte[] securedManifest=ManifestEncoding.canonicalize(value.toString());
                 replace(document,files.get("manifest.json"),securedManifest,"application/json");
-                replace(document,files.get("manifest.sha256"),(hash(securedManifest)+"  manifest.json\n").getBytes(StandardCharsets.US_ASCII),"text/plain");
+                byte[] manifestChecksum=(hash(securedManifest)+"  manifest.json\n").getBytes(StandardCharsets.US_ASCII);
+                replace(document,files.get("manifest.sha256"),manifestChecksum,"text/plain");
                 var attachments=new Attachments(document);
                 attachments.add("provenance.json",evidence,"application/json","Supplement","Observed export events; acquisition and delivery remain unknown");
                 if(revocations!=null)attachments.add("revocation.json",revocations,"application/json","Supplement","Local signed revocation evidence; not trusted without issuer/path validation");
@@ -106,8 +108,19 @@ public final class ArchiveSecurity {
                 document.getDocumentCatalog().getNames().getEmbeddedFiles().setNames(names);
                 var associated=new COSArray();for(var specification:names.values())associated.add(specification);
                 document.getDocumentCatalog().getCOSObject().setItem(COSName.getPDFName("AF"),associated);
-                long total=0;for(var specification:names.values())total=PackageLimits.reserve(total,PackageTools.content(specification).digest().length());
-                PdfMetadata.apply(document,new String(securedManifest,StandardCharsets.UTF_8),bytes(files.get("dicom-metadata.json")));
+                verifiedLengths.put("manifest.json",(long)securedManifest.length);
+                verifiedLengths.put("manifest.sha256",(long)manifestChecksum.length);
+                verifiedLengths.put("provenance.json",(long)evidence.length);
+                verifiedLengths.put("manifest.p7s",(long)cms.length);
+                if(revocations!=null)verifiedLengths.put("revocation.json",(long)revocations.length);
+                if(c2pa)verifiedLengths.put(ArchiveC2pa.FILE,(long)ArchiveC2pa.CAPACITY);
+                long total=0;
+                for(String name:names.keySet()){
+                    Long length=verifiedLengths.get(name);
+                    if(length==null)throw new IOException("Missing verified length for "+name);
+                    total=PackageLimits.reserve(total,length);
+                }
+                PdfMetadata.applyStream(document,new String(securedManifest,StandardCharsets.UTF_8),PackageTools.content(files.get("dicom-metadata.json")));
                 if(c2pa)ArchiveC2pa.reserve(document);
                 try(OutputStream stream=PackageLimits.documentOutput(Files.newOutputStream(prepared),PackageLimits.DOCUMENT)){document.save(stream);}
             }

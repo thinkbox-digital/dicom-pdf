@@ -2,7 +2,10 @@ package digital.thinkbox.dicompdf;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.file.*;
+import org.dcm4che3.data.*;
+import org.dcm4che3.io.DicomOutputStream;
 import java.util.*;
 import org.apache.pdfbox.Loader;
 import org.junit.jupiter.api.Test;
@@ -59,6 +62,35 @@ class ExpandedFormatsTest {
         assertEquals("1",first.displayAdjustments().get("sourceFrame"));assertEquals("2",second.displayAdjustments().get("sourceFrame"));
         assertNull(DicomInput.inspect(bytes,3).image(),"Frame beyond supplied count must fail explicitly");
         assertArrayEquals(snapshot,bytes,"Rendering must never change the original bytes");
+    }
+
+    @Test void packedFramesCanStartMidByteAndCrossBigEndianWordBoundaries()throws Exception {
+        // Each three-pixel frame begins three bits later. Frame six crosses the 16-bit word boundary.
+        byte[] littleEndian={(byte)0x93,(byte)0x69,(byte)0xf2,0};
+        for(String syntax:List.of(UID.ExplicitVRLittleEndian,UID.ExplicitVRBigEndian,UID.DeflatedExplicitVRLittleEndian)){
+            var seed=DicomInput.dataset(SourceContent.file(Path.of("fixtures/expanded/sc-single-bit.dcm"))).attributes();
+            var attrs=new Attributes(seed,false);
+            attrs.setInt(Tag.Rows,VR.US,1);attrs.setInt(Tag.Columns,VR.US,3);
+            attrs.setInt(Tag.NumberOfFrames,VR.IS,8);
+            attrs.setDouble(Tag.WindowCenter,VR.DS,0.5);attrs.setDouble(Tag.WindowWidth,VR.DS,1);
+            attrs.setBytes(Tag.PixelData,VR.OW,littleEndian.clone());
+            var bytes=new ByteArrayOutputStream();
+            try(var out=new DicomOutputStream(bytes,UID.ExplicitVRLittleEndian)){
+                out.writeDataset(attrs.createFileMetaInformation(syntax),attrs);
+            }
+            byte[] original=bytes.toByteArray();
+            for(int frame=0;frame<8;frame++){
+                var result=DicomInput.inspect(original,frame+1);
+                assertNotNull(result.image(),syntax+": "+result.reason());
+                for(int x=0;x<3;x++){
+                    int bit=frame*3+x;
+                    boolean expected=((littleEndian[bit/8]>>>(bit%8))&1)!=0;
+                    assertEquals(expected,(result.image().getRGB(x,0)&255)>127,syntax+" frame "+frame+" x "+x);
+                }
+            }
+            if(!syntax.equals(UID.DeflatedExplicitVRLittleEndian))
+                assertNull(DicomInput.inspect(Arrays.copyOf(original,original.length-1),1).image());
+        }
     }
 
     @Test void enhancedFramesUseExclusivePerFrameWindowAndRescaleMacros()throws Exception {

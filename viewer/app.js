@@ -13,7 +13,7 @@ import { createMetadataFieldPicker } from './metadata-options.mjs';
 import { createCompareView } from './compare-view.mjs';
 import { createDecodedImageCache } from './decoded-image-cache.mjs';
 import { createStackOrder, orderSourceIndices } from './stack-order.mjs';
-import { buildPaneInventory } from './pane-inventory.mjs';
+import {buildPaneInventory,initialDisplayCandidates} from './pane-inventory.mjs';
 import { readXmpInventory } from './xmp-metadata.mjs';
 import { imageOverlayContext } from './image-overlays.mjs';
 import { buildStackPosition, createStackScrubber } from './stack-position.mjs';
@@ -25,7 +25,7 @@ import { attachmentKind, renderAttachmentPreview } from './attachment-preview.mj
 import { metadataCsv } from './metadata-export.mjs';
 import {createArchiveVerificationPanel} from './archive-verification-panel.mjs';
 import {localPdfRange} from './pdf-blob-range.mjs';
-import {openPdfAttachments,attachmentBytes} from './pdf-attachments.mjs';
+import {openPdfAttachments,attachmentBytes,recordedAttachmentDigest} from './pdf-attachments.mjs';
 import {workingMemoryBytes} from './working-memory.mjs';
 import {readStructureInventory,structureDetails} from './source-structure.mjs';
 import {buildCornerstoneStack,createCornerstoneStackViewport,createCornerstoneImageLoader} from './cornerstone-stack.mjs';
@@ -49,7 +49,7 @@ function selectedSourceIndex(){
 const files = createDecodedImageCache({maxBytes:64*1024*1024,onEvict:id=>{if(cache.getImageLoadObject(id))cache.removeImageLoadObject(id);}});
 const decoding=new Map();
 let entries = [], attachments = null, pdf = null, pdfSource = null, viewport, initialWindow, activeImageId, generation = 0;
-let attachmentsByName=new Map();
+let attachmentsByName=new Map(),sourceIndexByName=new Map(),referencesDirty=true;
 let selectedGeneration = 0, manifestVersion = 1, manifest = null, manifestBytes = null, selectedOriginal = null;
 let viewedFrame = 1;
 let nativeFallback = null, pdfMode = false, pageNumber = 1, pageRender = null, pageGeneration = 0;
@@ -60,7 +60,7 @@ let metadataFieldPicker=null;
 let comparison=null;
 let paneInventory=null;
 const sourceOptions=new Map();
-let sourceListStack=null;
+let sourceListStack=null,deferredPdfSource=null;
 let xmpInventory=null,xmpFile=null,xmpError=null,xmpPromise=null;
 let overlayDisplay=null,overlaysEnabled=true,overlayRequest=null;
 let activeWindowRenderer=null,windowPresetModel=null,lastImageSelection=null;
@@ -354,14 +354,17 @@ function details(entry,{force=false}={}) {
     fields.append(term, description);
   }
 }
+function originalChecksumLabel(verified){
+  return verified?'SHA-256 verified':'No recorded SHA-256';
+}
 async function checkedAttachment(file, source, action) {
   if (!file) throw new Error('The original attachment is missing from this package.');
   const documentGeneration=generation;
+  const expected=recordedAttachmentDigest(manifest,file,source);
   // Reuse the original held for download during frame navigation and prefetch.
   const bytes = selectedOriginal?.file === file && selectedOriginal.entry === source
     ? selectedOriginal.bytes : await attachmentBytes(file);
   if(documentGeneration!==generation)throw new DOMException('Document changed.','AbortError');
-  const expected = source?.sha256 || manifest?.artifactSha256?.[file.filename];
   let check = attachmentChecks.get(bytes);
   if (!check&&expected) { check = sha256(bytes); attachmentChecks.set(bytes,check); }
   const matches=!expected||await check===expected.toLowerCase();
@@ -484,7 +487,7 @@ async function previewAttachment(file, source, kind, signal) {
   }
   if(kind==='spectroscopy'){
     previewCleanup=renderSpectroscopy($('attachment-content'),specialized);
-    status('MR spectroscopy · original SHA-256 verified.');
+    status('MR spectroscopy · '+originalChecksumLabel(result.verified));
     return true;
   }
   if(kind==='presentation-state'){
@@ -497,7 +500,7 @@ async function previewAttachment(file, source, kind, signal) {
     }});
     previewCleanup=preview.cleanup;
     const shown=await preview.ready;
-    if(isCurrent()&&shown)status('Saved grayscale presentation · original SHA-256 verified.');
+    if(isCurrent()&&shown)status('Saved grayscale presentation · '+originalChecksumLabel(result.verified));
     return !!shown;
   }
   const cleanup = await renderAttachmentPreview({bytes:previewBytes,name:previewName,kind,
@@ -527,7 +530,7 @@ function renderPackageFiles(list,items){
     const row = document.createElement('div'); row.className = 'package-file'; row.dataset.attachment = name;
     const title = document.createElement('span'); title.className = 'file-name';
     const facts = document.createElement('span'); facts.className = 'file-facts';
-    const sourceIndex = entries.findIndex(e=>e.attachment === name);
+    const sourceIndex = sourceIndexByName.get(name);
     const source = entries[sourceIndex];
     const kind = source?sourceViewKind(sourceIndex):attachmentKind(name,file.contentType);
     const reason=source&&!kind?supportingSourceDisplay(source)?.description:null;
@@ -578,8 +581,16 @@ function updateInventorySummary() {
 function packageDetails() {
   packageFiles();
   updateInventorySummary();
+  referencesDirty=true;
+  if($('references-section')?.open)renderReferences();
+}
+$('references-section')?.addEventListener('toggle',()=>{
+  if($('references-section').open&&referencesDirty)renderReferences();
+});
+function renderReferences(){
   const list = $('references-list');
   if (!list) return;
+  referencesDirty=false;
   list.replaceChildren();
   const groups = new Map();
   const references = [...(manifest?.references || []),...(directoryInventory?.references || []).map(ref=>({...ref,
@@ -596,7 +607,7 @@ function packageDetails() {
     'transfer-syntax-mismatch':'DICOMDIR encoding differs from supplied file','unreadable-target':'Referenced file cannot be read',
     'duplicate-reference':'DICOMDIR references the same file more than once','invalid-reference':'DICOMDIR reference lacks required identity fields'};
   const classes = {'1.2.840.10008.5.1.4.1.1.2':'CT image','1.2.840.10008.3.1.2.3.1':'Study-management record (retired)','1.3.12.2.1107.5.9.1':'Siemens non-image object'};
-  const sourceName = name => entries.find(entry=>entry.attachment === name)?.sourcePath || name;
+  const sourceName = name => entries[sourceIndexByName.get(name)]?.sourcePath || name;
   for (const refs of groups.values()) {
     const ref = refs[0], item = document.createElement('li'); item.dataset.referenceStatus = ref.status;
     const heading = document.createElement('strong'); heading.textContent = labels[ref.status] || ref.status;
@@ -608,21 +619,28 @@ function packageDetails() {
       sources.get(occurrence.sourceAttachment).push(occurrence);
     }
     const occurrences = document.createElement('p'); occurrences.textContent = `${sources.size} referring file${sources.size === 1 ? '' : 's'} · ${refs.length} reference${refs.length === 1 ? '' : 's'}`;
-    const disclosure = document.createElement('details'), summary = document.createElement('summary'), sourceList = document.createElement('ul');
+    const disclosure = document.createElement('details'), summary = document.createElement('summary');
     summary.textContent = 'Referring files and metadata paths';
-    for (const [name,items] of sources) {
-      const sourceItem = document.createElement('li');
-      sourceItem.textContent = `${sourceName(name)} (${attachment(name) ? 'embedded' : 'source attachment unavailable'})`;
-      const paths = document.createElement('ul');
-      for (const occurrence of items) {
-        const path = document.createElement('li');
-        path.textContent = `${occurrence.sequencePath || 'DICOM reference'}${occurrence.frames?.length ? ` · frame ${occurrence.frames.join(', ')}` : ''}`;
-        if (occurrence.reason) path.textContent += ` · ${occurrence.reason}`;
-        paths.append(path);
+    disclosure.append(summary);
+    disclosure.addEventListener('toggle',function populate(){
+      if(!disclosure.open)return;
+      disclosure.removeEventListener('toggle',populate);
+      const sourceList=document.createElement('ul');
+      for (const [name,items] of sources) {
+        const sourceItem = document.createElement('li');
+        sourceItem.textContent = `${sourceName(name)} (${attachment(name) ? 'embedded' : 'source attachment unavailable'})`;
+        const paths = document.createElement('ul');
+        for (const occurrence of items) {
+          const path = document.createElement('li');
+          path.textContent = `${occurrence.sequencePath || 'DICOM reference'}${occurrence.frames?.length ? ` · frame ${occurrence.frames.join(', ')}` : ''}`;
+          if (occurrence.reason) path.textContent += ` · ${occurrence.reason}`;
+          paths.append(path);
+        }
+        sourceItem.append(paths); sourceList.append(sourceItem);
       }
-      sourceItem.append(paths); sourceList.append(sourceItem);
-    }
-    disclosure.append(summary,sourceList); item.append(heading,target,occurrences,disclosure); list.append(item);
+      disclosure.append(sourceList);
+    });
+    item.append(heading,target,occurrences,disclosure); list.append(item);
   }
   for (const [uid,candidates] of Object.entries(manifest?.duplicateInstanceUIDs || {})) {
     const item = document.createElement('li'); item.textContent = `Duplicate instance UID ${uid}: ${candidates.join(', ')}`; list.append(item);
@@ -906,6 +924,11 @@ async function showMode(mode,{reopenContent=true}={}) {
   if (enteringPdf) {
     const entry = entries[selectedSourceIndex()];
     if (Number.isInteger(entry?.referencePage) && entry.referencePage>=1 && entry.referencePage<=pdf?.numPages) pageNumber = entry.referencePage;
+    if(pendingSelection)deferredPdfSource=selectedSourceIndex();
+    ++selectedGeneration;selectionAbort?.abort();cancelImageDecodes();
+    displayLoading=false;pendingSelection=null;$('viewport').setAttribute('aria-busy','false');
+    if($('download-original'))$('download-original').disabled=!attachment(entry?.attachment);
+    if($('export-csv'))$('export-csv').disabled=!entries.length;
   }
   pdfMode = mode === 'pdf';
   if ($('image-view')) $('image-view').hidden = pdfMode;
@@ -925,6 +948,10 @@ async function showMode(mode,{reopenContent=true}={}) {
     ++pageGeneration; if (pageRender) pageRender.cancel(); engine.resize(true,true);
     if (isDataIndex(mappedIndex) && mappedIndex !== selectedSourceIndex()) {
       $('image-list').value = String(mappedIndex); await openSelected();
+    } else if(reopenContent&&deferredPdfSource!==null){
+      const index=deferredPdfSource;deferredPdfSource=null;
+      if(!activeImageId||overlayDisplay?.index!==index||selectedOriginal?.entry!==entries[index])await openSelected();
+      else {enableControls(true);viewport.render();}
     } else if (reopenContent && canDisplay(entries[selectedSourceIndex()]||{}) && lastImageSelection?.index===selectedSourceIndex()
       && (!activeImageId||overlayDisplay?.index!==lastImageSelection.index||overlayDisplay?.frame!==lastImageSelection.frame)) {
       await openSelected(lastImageSelection.frame,{scrolling:true});
@@ -1063,6 +1090,19 @@ async function openSelected(sourceFrame = null,{playback=false,scrolling=false,s
   if(!entry){externalSignal?.removeEventListener('abort',cancel);return false;}
   refreshSourceList(selectedIndex);
   navigation?.updateSelection(selectedIndex);
+  if(pdfMode&&!previewVisible){
+    deferredPdfSource=selectedIndex;
+    cancelImageDecodes();
+    displayLoading=false;pendingSelection=null;$('viewport').setAttribute('aria-busy','false');
+    if(Number.isInteger(entry.referencePage))pageNumber=entry.referencePage;
+    setPdfControls();details(entry);
+    if($('download-original'))$('download-original').disabled=!attachment(entry.attachment);
+    if($('export-csv'))$('export-csv').disabled=false;
+    status(`${entry.sourcePath||entry.attachment} · PDF reference page ${pageNumber}`);
+    try{await renderPdfPage();return true;}
+    finally{externalSignal?.removeEventListener('abort',cancel);}
+  }
+  deferredPdfSource=null;
   const requestedFrame = Number.isInteger(sourceFrame) ? sourceFrame : entry?.sourceFrame || 1;
   const retain=!!activeImageId&&!!initialWindow&&!pdfMode&&!previewVisible&&canDisplay(entry);
   if(!playback){
@@ -1083,7 +1123,6 @@ async function openSelected(sourceFrame = null,{playback=false,scrolling=false,s
   if (Number.isInteger(entry.referencePage)) { pageNumber = entry.referencePage; setPdfControls(); }
   let openedOriginal=null;
   try {
-    if (pdfMode && !previewVisible) await renderPdfPage();
     if (selection !== selectedGeneration || documentGeneration !== generation || signal.aborted) return;
     if(!playback)status(`Reading ${entry.sourcePath || entry.attachment}…`);
     const original = attachment(entry.attachment);
@@ -1091,7 +1130,7 @@ async function openSelected(sourceFrame = null,{playback=false,scrolling=false,s
       originalStates.set(entry.attachment,{integrity:'missing',display:'failed'});
       throw new Error('This original attachment is missing from the PDF.');
     }
-    const {bytes} = await checkedAttachment(original,entry,'display');
+    const {bytes,verified} = await checkedAttachment(original,entry,'display');
     if (selection !== selectedGeneration || documentGeneration !== generation || signal.aborted) return;
     openedOriginal={entry,file:original,bytes};
     if (!canDisplay(entry)) {
@@ -1110,7 +1149,6 @@ async function openSelected(sourceFrame = null,{playback=false,scrolling=false,s
         return true;
       }
       showUnavailableSource(entry,selectedIndex);
-      if (pdfMode) await renderPdfPage();
       return false;
     }
     const imageId = `dicom:${documentGeneration}-${selectedIndex}-${requestedFrame}`;
@@ -1170,11 +1208,10 @@ async function openSelected(sourceFrame = null,{playback=false,scrolling=false,s
       geometryWarning:decoded.sourceDisplay?.geometry?.warning,
       windowNotes});
     refreshSourceOption(selectedIndex);
-    if(!playback)status(`${entry.sourcePath || entry.attachment}${automaticWindow?` · ${automaticWindow}`:''} · page ${entry.referencePage ?? 'none'} · frame ${requestedFrame}${baseline ? '' : ' (interactive source display; PDF baseline unchanged)'} · SHA-256 verified · unitless reference display`);
+    if(!playback)status(`${entry.sourcePath || entry.attachment}${automaticWindow?` · ${automaticWindow}`:''} · page ${entry.referencePage ?? 'none'} · frame ${requestedFrame}${baseline ? '' : ' (interactive source display; PDF baseline unchanged)'} · ${originalChecksumLabel(verified)} · unitless reference display`);
     $('viewport').dataset.loadedAttachment = entry.attachment;
     overlayDisplay={id:imageId,entry,index:selectedIndex,frame:requestedFrame,decoded,points:overlayPixelPoints()};
     refreshImageOverlays();refreshStackPosition();
-    if (pdfMode) await renderPdfPage();
     if(!pdfMode&&!previewVisible)prefetchFrames(selectedIndex,requestedFrame);
     return true;
     });
@@ -1210,7 +1247,7 @@ async function resetDocument({name,fallback=null}) {
   archiveVerification.reset();
   const thisGeneration = ++generation; ++selectedGeneration; ++pageGeneration;
   cine.stop();
-  stackScrubber.cancel();lastImageSelection=null;
+  stackScrubber.cancel();lastImageSelection=null;deferredPdfSource=null;
   cancelImageDecodes();decoding.clear();stackOrder?.clear();stackOrder=null;
   clearTimeout(detailsTimer);detailEntry=null;
   selectionAbort?.abort();zipAbort?.abort();decoder.clear();navigation?.destroy();navigation=null;
@@ -1224,6 +1261,7 @@ async function resetDocument({name,fallback=null}) {
   $('originals-export-dialog')?.close();
   clearDisplay(); $('image-list').replaceChildren();sourceOptions.clear();sourceListStack=null; details(null);
   entries = []; setAttachments(null); manifest = null; manifestBytes = null; pdfSource=null; nativeFallback = fallback; paneInventory=null;
+  sourceIndexByName.clear();referencesDirty=true;$('references-list')?.replaceChildren();
   delete $('viewport').dataset.inputKind;
   xmpInventory=null;xmpFile=null;xmpError=null;xmpPromise=null;
   inputInventory=null;directoryInventory=null;inventoryProblems=[];
@@ -1329,6 +1367,7 @@ async function readPdfInput(data, {name = 'DICOM PDF', nativeFallback: fallback 
       : profileLabel;
   } else $('package-role').textContent = 'Legacy package · source role not supplied';
   manifest = parsed; entries = parsed.images.map(entry=>({...entry}));
+  for(const [index,entry] of entries.entries())if(!sourceIndexByName.has(entry.attachment))sourceIndexByName.set(entry.attachment,index);
   $('viewport').dataset.inputKind='pdf-package';
   loadingArchiveGeneration=thisGeneration;
   try{
@@ -1429,12 +1468,8 @@ async function activateSources(thisGeneration) {
   if ($('download-manifest')) $('download-manifest').disabled = false;
   await showMode('image',{reopenContent:false});
   const sourceIndices=[...$('image-list').options].map(option=>Number(option.value));
-  const knownImage=sourceIndices.find(index=>canDisplay(entries[index])&&!needsOriginalDecodeProbe(entries[index]));
-  // Older manifests record PDF preview rejections for images the current
-  // decoder may handle. Try known images first.
-  const candidates=knownImage===undefined?sourceIndices.filter(index=>canDisplay(entries[index])):[knownImage];
-  const previews=sourceIndices.filter(index=>FILE_PREVIEWS.has(sourceViewKind(index)));
-  const choices=new Set([...candidates,...(previews.length?previews:sourceIndices.slice(0,1))]);
+  const choices=initialDisplayCandidates(sourceIndices,index=>canDisplay(entries[index]),
+    index=>needsOriginalDecodeProbe(entries[index]),index=>FILE_PREVIEWS.has(sourceViewKind(index)));
   if(!choices.size) {
     $('image-list').selectedIndex = -1;
     const originals=paneInventory.otherSuppliedIndices.map(index=>entries[index]).filter(entry=>attachment(entry.attachment));
@@ -1447,7 +1482,7 @@ async function activateSources(thisGeneration) {
     $('image-list').value=String(index);
     const opened=await openSelected();
     if(thisGeneration!==generation)return false;
-    if(opened||!needsOriginalDecodeProbe(entries[index])&&!FILE_PREVIEWS.has(sourceViewKind(index)))break;
+    if(opened)break;
   }
   activateNavigation(thisGeneration);
   return true;
@@ -1598,10 +1633,15 @@ $('show-metadata')?.addEventListener('click',()=>{
 });
 $('close-metadata')?.addEventListener('click',()=>$('metadata-section').close());
 $('native-pdf')?.addEventListener('click',()=>{if (nativeFallback) Promise.resolve(nativeFallback()).catch(fail);});
-$('download-original')?.addEventListener('click',()=>{
-  if (!selectedOriginal) return;
-  const name=(selectedOriginal.entry.sourcePath || selectedOriginal.entry.attachment).split(/[\\/]/).pop() || selectedOriginal.entry.attachment;
-  download(selectedOriginal.bytes,name,'application/dicom');
+$('download-original')?.addEventListener('click',async()=>{
+  const entry=entries[selectedSourceIndex()],documentGeneration=generation;
+  if(!entry)return;
+  try{
+    const {bytes}=await checkedAttachment(attachment(entry.attachment),entry,'download');
+    if(documentGeneration!==generation||entry!==entries[selectedSourceIndex()])return;
+    const name=(entry.sourcePath||entry.attachment).split(/[\\/]/).pop()||entry.attachment;
+    download(bytes,name,'application/dicom');
+  }catch(error){if(documentGeneration===generation&&entry===entries[selectedSourceIndex()])status(error.message);}
 });
 $('download-manifest')?.addEventListener('click',()=>{if (manifestBytes && manifest) download(manifestBytes,'manifest.json','application/json');});
 function stackIndices(index=selectedSourceIndex()) {

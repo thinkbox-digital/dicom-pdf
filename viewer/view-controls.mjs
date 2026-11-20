@@ -1,4 +1,4 @@
-import {floatingVoi,windowInputValue,voiValue} from './voi-window.mjs';
+import {floatingVoi,presentationValue,windowInputValue,voiValue} from './voi-window.mjs';
 import {isFloatingPixels} from './parametric-map.mjs';
 
 /** Temporary display controls; original pixels and the preservation recipe stay unchanged. */
@@ -64,8 +64,8 @@ export function thumbnailPixels(decoded,maxEdge=160) {
     else if(windowFloat)rgba[target]=rgba[target+1]=rgba[target+2]=windowFloat(pixels[source]);
     else {
       const value=windowInputValue(image,pixels[source]);
-      let gray=voiValue(value,window);
-      if(image.invert)gray=255-gray;rgba[target]=rgba[target+1]=rgba[target+2]=gray;
+      const gray=presentationValue(image.presentationLut,voiValue(value,window),image.invert);
+      rgba[target]=rgba[target+1]=rgba[target+2]=gray;
     }
     rgba[target+3]=255;
   }
@@ -80,4 +80,3 @@ export function preserveViewportKeyboardInputs(element){
   const guard=event=>{if(event.defaultPrevented||event.isComposing||interactive(event.target))event.stopImmediatePropagation();};
   element.addEventListener('keydown',guard);return()=>element.removeEventListener('keydown',guard);
 }
-

@@ -194,7 +194,7 @@ def assert_pdf_preview(page, frame, manifest):
     # selected when returning to the original-image viewport.
     frame.locator("#show-pdf").click()
     frame.locator("#image-list").select_option(str(third))
-    expect(viewport).to_have_attribute("data-loaded-attachment",entries[third]["attachment"])
+    expect(frame.locator("#selected-source")).to_have_text(entries[third]["sourcePath"])
     pdf_page(third)
     frame.locator("#show-image").click();selected_image(third)
 

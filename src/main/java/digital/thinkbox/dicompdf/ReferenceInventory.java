@@ -6,68 +6,81 @@ import org.dcm4che3.data.*;
 /** Explicit SOP references only; never infers absent teeth, studies or series members. */
 final class ReferenceInventory {
     private ReferenceInventory() {}
-    static Map<String,List<String>> duplicates(Map<String,?> originals) {
-        Map<String,List<String>> ids = index(originals);
-        ids.entrySet().removeIf(e -> e.getValue().size() < 2);
-        return Collections.unmodifiableMap(ids);
-    }
-    private static Map<String,List<String>> index(Map<String,?> originals) {
-        Map<String,List<String>> ids = new TreeMap<>();
-        for (var file : originals.entrySet()) {
-            String uid = DicomInput.fields(file.getValue()).get("SOPInstanceUID");
-            if (uid != null && !uid.isBlank()) ids.computeIfAbsent(uid, k -> new ArrayList<>()).add(file.getKey());
-        }
-        return ids;
-    }
-    static List<Manifest.Reference> resolve(Map<String,?> originals) {
-        var ids = index(originals); List<Manifest.Reference> result = new ArrayList<>();
-        for (var file : originals.entrySet()) {
+    record Analysis(List<Manifest.Reference> references,Map<String,List<String>> duplicates) {}
+    record Link(String path,String sopClass,String uid,List<Integer> frames,boolean incomplete) {}
+    record Entry(String attachment,Map<String,String> fields,List<Link> links) {}
+
+    static Analysis analyze(Map<String,?> originals) {
+        var entries=new ArrayList<Entry>();
+        for (var source:originals.entrySet()) {
             DicomInput.Dataset dataset;
-            try { dataset = DicomInput.dataset(file.getValue()); }
-            catch (Exception e) { continue; } // Unreadable originals are counted separately by verification.
-            try { scan(file.getKey(), dataset.attributes(), "", ids, originals, result, 0); }
-            catch (Exception e) {
-                // This is a coverage diagnostic, not an invented SOP reference. Never claim a complete scan after a failure.
-                result.add(new Manifest.Reference(file.getKey(), "/REFERENCE_SCAN_INCOMPLETE", null, null,
-                        List.of(), "unassessed", List.of()));
-            }
+            try { dataset=DicomInput.dataset(source.getValue()); }
+            catch(Exception e){continue;} // Unreadable files are reported by the independent source checks.
+            Map<String,String> fields;
+            try { fields=DicomInput.fields(dataset); } catch(RuntimeException e){fields=Map.of();}
+            entries.add(new Entry(source.getKey(),fields,links(dataset.attributes())));
         }
-        return List.copyOf(result);
+        return resolveEntries(entries);
     }
-    private static void scan(String source, Attributes attrs, String path, Map<String,List<String>> ids,
-                             Map<String,?> originals, List<Manifest.Reference> result, int depth) {
-        if (depth > 64) throw new IllegalArgumentException("Reference sequence depth exceeds 64");
-        if (attrs.contains(Tag.ReferencedSOPInstanceUID)) {
-            String uid = attrs.getString(Tag.ReferencedSOPInstanceUID);
-            String sopClass = attrs.getString(Tag.ReferencedSOPClassUID);
-            List<Integer> frames = new ArrayList<>(); boolean badFrame = false;
-            String[] frameValues = attrs.getStrings(Tag.ReferencedFrameNumber);
-            if (frameValues != null) for (String value : frameValues) {
-                try { int frame = Integer.parseInt(value.trim()); frames.add(frame); if (frame < 1) badFrame = true; }
-                catch (RuntimeException e) { frames.add(0); badFrame = true; }
-            }
-            var matches = uid == null ? List.<String>of() : ids.getOrDefault(uid, List.of());
-            String status = matches.isEmpty() ? "missing" : matches.size() > 1 ? "ambiguous" : "resolved";
-            if (status.equals("resolved")) {
-                Map<String,String> fields = DicomInput.fields(originals.get(matches.getFirst()));
-                int count = 1;
-                try { count = Integer.parseInt(fields.getOrDefault("NumberOfFrames", "1")); }
-                catch (RuntimeException e) { badFrame = true; }
-                for (int frame : frames) if (frame > count) { badFrame = true; break; }
-                if (badFrame) status = "invalid-frame";
-                if (sopClass != null && !sopClass.equals(fields.get("SOPClassUID"))) status = "class-mismatch";
-            }
-            result.add(new Manifest.Reference(source, path + "/ReferencedSOPInstanceUID(0008,1155)", sopClass, uid,
-                    List.copyOf(frames), status, List.copyOf(matches)));
+    static List<Manifest.Reference> resolve(Map<String,?> originals){return analyze(originals).references();}
+    static Map<String,List<String>> duplicates(Map<String,?> originals){return analyze(originals).duplicates();}
+
+    static Analysis resolveEntries(List<Entry> sources) {
+        var ids=new TreeMap<String,List<String>>();
+        var fields=new HashMap<String,Map<String,String>>();
+        for(var source:sources){
+            fields.put(source.attachment(),source.fields());
+            String uid=source.fields().get("SOPInstanceUID");
+            if(uid!=null && !uid.isBlank())ids.computeIfAbsent(uid,k->new ArrayList<>()).add(source.attachment());
         }
-        for (int tag : attrs.tags()) {
-            if (attrs.getVR(tag) != VR.SQ) continue;
-            Sequence sequence = attrs.getSequence(tag);
-            if (sequence == null) continue;
-            String name = ElementDictionary.keywordOf(tag, attrs.getPrivateCreator(tag));
-            if (name == null || name.isBlank()) name = "Sequence";
-            String tagged = name + String.format(Locale.ROOT, "(%04X,%04X)", tag >>> 16, tag & 0xffff);
-            for (int i = 0; i < sequence.size(); i++) scan(source, sequence.get(i), path + "/" + tagged + "[" + i + "]", ids, originals, result, depth + 1);
+        ids.replaceAll((uid,attachments)->List.copyOf(attachments));
+        var result=new ArrayList<Manifest.Reference>();
+        for(var source:sources)for(var link:source.links()){
+            List<String> matches=link.uid()==null?List.of():ids.getOrDefault(link.uid(),List.of());
+            String status;
+            if(link.incomplete())status="unassessed";
+            else if(matches.isEmpty())status="missing";
+            else if(matches.size()>1)status="ambiguous";
+            else {
+                var target=fields.get(matches.getFirst());
+                status="resolved";
+                try {
+                    int count=Integer.parseInt(target.getOrDefault("NumberOfFrames","1"));
+                    for(int frame:link.frames())if(frame<1 || frame>count){status="invalid-frame";break;}
+                } catch(NumberFormatException e){status="invalid-frame";}
+                if(link.sopClass()!=null && !link.sopClass().equals(target.get("SOPClassUID")))status="class-mismatch";
+            }
+            result.add(new Manifest.Reference(source.attachment(),link.path(),link.sopClass(),link.uid(),link.frames(),status,matches));
+        }
+        ids.entrySet().removeIf(item->item.getValue().size()<2);
+        return new Analysis(List.copyOf(result),Collections.unmodifiableMap(ids));
+    }
+    static List<Link> links(Attributes data) {
+        var links=new ArrayList<Link>();
+        try {scan(data,"",links,0);}
+        catch(RuntimeException e){links.add(new Link("/REFERENCE_SCAN_INCOMPLETE",null,null,List.of(),true));}
+        return List.copyOf(links);
+    }
+    private static void scan(Attributes attrs,String path,List<Link> links,int depth){
+        if(depth>64)throw new IllegalArgumentException("Reference sequence depth exceeds 64");
+        if(attrs.contains(Tag.ReferencedSOPInstanceUID)){
+            String uid=attrs.getString(Tag.ReferencedSOPInstanceUID);
+            String sopClass=attrs.getString(Tag.ReferencedSOPClassUID);
+            var frames=new ArrayList<Integer>();
+            String[] values=attrs.getStrings(Tag.ReferencedFrameNumber);
+            if(values!=null)for(String value:values){
+                try {frames.add(Integer.parseInt(value.trim()));}catch(RuntimeException e){frames.add(0);}
+            }
+            links.add(new Link(path+"/ReferencedSOPInstanceUID(0008,1155)",sopClass,uid,List.copyOf(frames),false));
+        }
+        for(int tag:attrs.tags()){
+            if(attrs.getVR(tag)!=VR.SQ)continue;
+            Sequence sequence=attrs.getSequence(tag);
+            if(sequence==null)continue;
+            String name=ElementDictionary.keywordOf(tag,attrs.getPrivateCreator(tag));
+            if(name==null || name.isBlank())name="Sequence";
+            String tagged=name+String.format(Locale.ROOT,"(%04X,%04X)",tag>>>16,tag&0xffff);
+            for(int i=0;i<sequence.size();i++)scan(sequence.get(i),path+"/"+tagged+"["+i+"]",links,depth+1);
         }
     }
 }

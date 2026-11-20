@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildPaneInventory,classifyPaneEntry} from '../pane-inventory.mjs';
+import {buildPaneInventory,classifyPaneEntry,initialDisplayCandidates} from '../pane-inventory.mjs';
+
+test('startup keeps later usable sources when a known image fails to open',()=>{
+  const order=initialDisplayCandidates([0,1,2,3,4],i=>[0,1,2].includes(i),i=>i===0,i=>i===4);
+  assert.deepEqual([...order],[1,2,0,4]);
+});
 
 const SOP='1.2.840.10008.5.1.4.1.1.';
 const source=(attachment,fields={},extra={})=>({attachment,sourcePath:attachment,fields,...extra});

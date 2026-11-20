@@ -53,7 +53,7 @@ public final class ArchiveEvidence {
         Path staged=Files.createTempFile(destination.getParent(),".dicom-evidence-",".json");
         try{
             Files.write(staged,bytes);
-            var report=verify(pdf,staged,options.policy());
+            var report=verify(pdf,staged,options.policy().withTime(options.clock().instant()));
             if(!report.assurance().equals("TIMESTAMPED_ARCHIVE_EVIDENCE"))throw new IOException("New evidence failed verification; no output published");
             Files.createLink(destination,staged);return report;
         }finally{Files.deleteIfExists(staged);}

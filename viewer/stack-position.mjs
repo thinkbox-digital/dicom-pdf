@@ -1,4 +1,6 @@
 const contexts=new WeakMap();
+// createStackOrder reuses frozen arrays until its membership is cleared.
+const imageDomains=new WeakMap();
 const noTarget=()=>null,noLabel=()=>'';
 const EMPTY=Object.freeze({kind:'none',min:1,max:0,value:0,label:'',hidden:true,targetAt:noTarget,labelAt:noLabel});
 
@@ -21,6 +23,29 @@ function unchanged(entries,index,before){
 function displayable(canDisplay,entry,index){try{return !!canDisplay(entry,index);}catch{return false;}}
 function framesOf(entry){return entry?.fields?.NumberOfFrames==null?1:integer(entry.fields.NumberOfFrames);}
 
+function imageDomain(entries,canDisplay,order,index){
+  const series=entries[index].fields?.SeriesInstanceUID,study=entries[index].fields?.StudyInstanceUID;
+  const cacheable=Array.isArray(order)&&Object.isFrozen(order);
+  const cached=cacheable?imageDomains.get(order):null;
+  if(cached&&cached.entries===entries&&cached.canDisplay===canDisplay&&cached.series===series
+      &&cached.study===study&&(series||cached.index===index)&&cached.positions.has(index)
+      &&unchanged(entries,index,cached.identities.get(index)))return cached;
+
+  const indices=[],positions=new Map(),identities=new Map();
+  for(const candidate of Array.isArray(order)?order:[index]){
+    if(!Number.isSafeInteger(candidate)||candidate<0||candidate>=entries.length||positions.has(candidate))continue;
+    const source=entries[candidate];
+    const same=series?source?.fields?.SeriesInstanceUID===series&&source?.fields?.StudyInstanceUID===study:candidate===index;
+    if(same&&displayable(canDisplay,source,candidate)){
+      positions.set(candidate,indices.push(candidate));
+      identities.set(candidate,signature(source));
+    }
+  }
+  const domain={entries,canDisplay,series,study,index,indices:Object.freeze(indices),positions,identities};
+  if(cacheable)imageDomains.set(order,domain);
+  return domain;
+}
+
 /**
  * Immutable slider domain. Frame positions stay in the selected original; image
  * positions follow the supplied physical stack order without sorting again.
@@ -33,23 +58,18 @@ export function buildStackPosition({entries,canDisplay,stackOrder,index,frame=1,
   if(!Number.isSafeInteger(index)||index<0||index>=entries.length||!displayable(canDisplay,entries[index],index))return EMPTY;
   const entry=entries[index],frames=frameCount===undefined?framesOf(entry):integer(frameCount),currentFrame=integer(frame);
   if(frames===null||currentFrame===null||currentFrame>frames)return EMPTY;
-  let kind,indices,order;
-  if(frames>1){kind='frame';indices=Object.freeze([index]);order=entry;}
+  let kind,indices,identities,value;
+  if(frames>1){kind='frame';indices=[index];value=currentFrame;identities=new Map([[index,signature(entry)]]);}
   else{
     kind='image';
+    let order;
     try{order=typeof stackOrder?.indices==='function'?stackOrder.indices(index):null;}catch{return EMPTY;}
-    const candidates=Array.isArray(order)?order:[index],seen=new Set();
-    const series=entry.fields?.SeriesInstanceUID,study=entry.fields?.StudyInstanceUID;
-    indices=Object.freeze(candidates.filter(candidate=>{
-      if(!Number.isSafeInteger(candidate)||candidate<0||candidate>=entries.length||seen.has(candidate))return false;
-      seen.add(candidate);const source=entries[candidate];
-      const same=series?source?.fields?.SeriesInstanceUID===series&&source?.fields?.StudyInstanceUID===study:candidate===index;
-      return same&&displayable(canDisplay,source,candidate);
-    }));
-    if(!indices.includes(index))return EMPTY;
+    const domain=imageDomain(entries,canDisplay,order,index);
+    ({indices,identities}=domain);
+    value=domain.positions.get(index);
+    if(value===undefined)return EMPTY;
   }
-  const max=kind==='frame'?frames:indices.length,value=kind==='frame'?currentFrame:indices.indexOf(index)+1;
-  const identities=new Map(indices.map(sourceIndex=>[sourceIndex,signature(entries[sourceIndex])]));
+  const max=kind==='frame'?frames:indices.length;
   const targetAt=position=>{
     position=integer(position);if(position===null||position>max)return null;
     const sourceIndex=kind==='frame'?index:indices[position-1],source=entries[sourceIndex];
@@ -59,13 +79,14 @@ export function buildStackPosition({entries,canDisplay,stackOrder,index,frame=1,
   };
   const labelAt=position=>{position=integer(position);return position!==null&&position<=max?`${kind==='frame'?'Frame':'Image'} ${position} of ${max}`:'';};
   const result=Object.freeze({kind,min:1,max,value,label:labelAt(value),hidden:max<=1,targetAt,labelAt});
-  contexts.set(result,{entries,kind,index,frames,indices,order});return result;
+  contexts.set(result,{entries,kind,index,frames,indices});return result;
 }
 
 function sameContext(first,second){
   const a=contexts.get(first),b=contexts.get(second);
   if(!a||!b||a.entries!==b.entries||a.kind!==b.kind)return false;
   if(a.kind==='frame')return a.index===b.index&&a.frames===b.frames;
+  if(a.indices===b.indices)return true;
   if(a.indices.length!==b.indices.length)return false;
   return a.indices.every((index,position)=>index===b.indices[position]);
 }

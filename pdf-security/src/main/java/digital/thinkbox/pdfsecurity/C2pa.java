@@ -99,9 +99,7 @@ public final class C2pa {
     }
 
     static byte[] validatedStore(Path pdf,C2paProfile profile){
-        var check=verify(pdf,profile).get("c2pa.binding");
-        try{return check!=null&&check.status()==SecurityReport.Status.PASS?store(pdf,profile):null;}
-        catch(IOException failure){return null;}
+        return verifyStore(pdf,profile).encoded();
     }
 
     /**
@@ -245,6 +243,12 @@ public final class C2pa {
     }
 
     public static Map<String, SecurityReport.Check> verify(Path path,C2paProfile profile) {
+        return verifyStore(path,profile).checks();
+    }
+
+    record StoreVerification(Map<String, SecurityReport.Check> checks, byte[] encoded) {}
+
+    static StoreVerification verifyStore(Path path, C2paProfile profile) {
         var result = new LinkedHashMap<String, SecurityReport.Check>();
         try (var doc = Loader.loadPDF(path.toFile())) {
             requireProfile(profile);
@@ -252,7 +256,7 @@ public final class C2pa {
             boolean declared = attachments.containsKey(profile.policyFile());
             if (!attachments.containsKey(profile.credentialsFile())) {
                 result.put("c2pa.presence", check(declared ? "FAIL" : "NOT_APPLICABLE", declared ? "MISSING_C2PA" : "NO_C2PA"));
-                return result;
+                return new StoreVerification(result,null);
             }
             if (!declared || !Arrays.equals(profile.policyBytes(), payload(attachments.get(profile.policyFile()), 1024)))
                 throw new IOException("C2PA policy missing or unsupported");
@@ -343,10 +347,11 @@ public final class C2pa {
             result.put("c2pa.binding", check("PASS", "PDF_AND_ARCHIVE_MANIFEST_BOUND"));
             result.put("c2pa.trust", check("UNKNOWN", "SIGNER_REQUIRES_EXTERNAL_C2PA_TRUST_POLICY"));
             result.put("c2pa.timestamp", check("UNKNOWN", "NO_C2PA_TRUSTED_TIMESTAMP"));
+            return new StoreVerification(result,encoded);
         } catch (Exception e) {
             result.put("c2pa.validation", check("FAIL", "INVALID_OR_UNSUPPORTED_C2PA: " + e.getMessage()));
         }
-        return result;
+        return new StoreVerification(result,null);
     }
 
     private static SecurityReport.Check check(String state, String code) {

@@ -14,6 +14,17 @@ import org.dcm4che3.imageio.plugins.dcm.*;
 final class DicomInput {
     record Result(Map<String,String> fields, BufferedImage image, String reason, Map<String,String> displayAdjustments) {}
     record Dataset(Attributes attributes, String syntax) {}
+    record Capture(Result preview,List<ReferenceInventory.Link> links) {}
+    static Capture capture(SourceContent source) {
+        try {
+            Dataset dataset=dataset(source);
+            var links=ReferenceInventory.links(dataset.attributes());
+            return new Capture(inspect(source,1,false,false,true,true,true,dataset),links);
+        } catch(Exception e){
+            String reason=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();
+            return new Capture(new Result(Map.of(),null,reason,Map.of()),List.of());
+        }
+    }
     private static final Set<String> IMAGE_CLASSES = imageClasses();
     private static final Set<String> MONO = Set.of("MONOCHROME1", "MONOCHROME2");
     private static final Set<String> COLOR = Set.of("RGB", "YBR_FULL", "YBR_FULL_422", "YBR_PARTIAL_422", "YBR_PARTIAL_420", "YBR_ICT", "YBR_RCT", "PALETTE COLOR");
@@ -41,7 +52,7 @@ final class DicomInput {
     static Result inspect(Object bytes) { return inspect(bytes,1); }
     /** One-based frame selection; PDF previews use frame 1, exploration can choose another frame. */
     static Result inspect(Object bytes, int sourceFrame) {
-        return inspect(bytes,sourceFrame,false,false,true,true);
+        return inspect(bytes,sourceFrame,false,false,true,true,true,null);
     }
     /** Reproduce older recorded policies without trusting their recorded numeric values. */
     static Result inspectForPreview(Object bytes,int sourceFrame,Map<String,String> recordedDisplay) {
@@ -52,16 +63,20 @@ final class DicomInput {
     }
     static Result inspectForPreview(Object bytes,int sourceFrame,Map<String,String> recordedDisplay,
                                     boolean expandedFormats,boolean wideReferenceFormats) {
+        return inspectForPreview(bytes,sourceFrame,recordedDisplay,expandedFormats,wideReferenceFormats,true);
+    }
+    static Result inspectForPreview(Object bytes,int sourceFrame,Map<String,String> recordedDisplay,
+                                    boolean expandedFormats,boolean wideReferenceFormats,boolean currentWindowing) {
         boolean recorded=recordedDisplay!=null && !recordedDisplay.isEmpty();
         return inspect(bytes,sourceFrame,recorded && "auto-min-max-v1".equals(recordedDisplay.get("windowMethod")),
-                recorded && !recordedDisplay.containsKey("geometryMethod"),expandedFormats,wideReferenceFormats);
+                recorded && !recordedDisplay.containsKey("geometryMethod"),expandedFormats,wideReferenceFormats,currentWindowing,null);
     }
     private static Result inspect(Object bytes,int sourceFrame,boolean legacyPadding,boolean legacyGeometry,
-                                  boolean expandedFormats,boolean wideReferenceFormats) {
+                                  boolean expandedFormats,boolean wideReferenceFormats,boolean currentWindowing,Dataset existing) {
         Map<String,String> fields = new LinkedHashMap<>();
         try {
             var source=SourceContent.of(bytes);
-            Dataset dataset = dataset(source); Attributes attrs = dataset.attributes(); String syntax = dataset.syntax();
+            Dataset dataset = existing==null?dataset(source):existing; Attributes attrs = dataset.attributes(); String syntax = dataset.syntax();
             fields.putAll(fields(dataset));
             String sopClass=attrs.getString(Tag.SOPClassUID);
             require(sopClass!=null && IMAGE_CLASSES.contains(sopClass), attrs.contains(Tag.DirectoryRecordSequence)
@@ -98,6 +113,13 @@ final class DicomInput {
             require(!effective.contains(Tag.ModalityLUTSequence) && !effective.contains(Tag.VOILUTSequence) && !effective.contains(Tag.PresentationLUTSequence),"Modality/VOI/presentation LUT sequences are not implemented; original preserved");
             String function=monochrome?effective.getString(Tag.VOILUTFunction,"LINEAR"):"LINEAR";
             boolean exact=expandedFormats && function.equals("LINEAR_EXACT");
+            if (currentWindowing && monochrome && function.equals("LINEAR")
+                    && functionalGroup(attrs,frameIndex,Tag.FrameVOILUTSequence)==null
+                    && singleZeroDecimal(attrs,Tag.WindowCenter) && singleZeroDecimal(attrs,Tag.WindowWidth)) {
+                // The original still contains its 0/0 placeholder. Use non-padding extrema for the reference.
+                effective.remove(Tag.WindowCenter);
+                effective.remove(Tag.WindowWidth);
+            }
             require(function.equals("LINEAR") || exact,expandedFormats
                     ? "Unsupported grayscale VOI LUT Function "+function+" (original preserved)"
                     : "Only LINEAR grayscale VOI is currently implemented");
@@ -134,7 +156,8 @@ final class DicomInput {
                 BufferedImage image;
                 if (exact) {
                     image=renderExact(reader.readRaster(renderFrame,param),stored,signed,display);
-                } else if (deflated!=null && allocated!=1 && display.get("windowMethod").equals("auto-min-max-v1")) {
+                } else if (deflated!=null && allocated!=1 && (display.get("windowMethod").equals("auto-min-max-v1")
+                        || currentWindowing && display.get("windowMethod").equals("auto-min-max-padding-v2"))) {
                     // Stream inputs cannot seek back after auto-window raster inspection.
                     try (var renderInput=new DicomInputStream(SourceContent.of(bytes).open())) {
                         reader.setInput(renderInput); image=reader.read(renderFrame,param);
@@ -148,6 +171,14 @@ final class DicomInput {
             return new Result(Collections.unmodifiableMap(fields),null,reason==null?e.getClass().getSimpleName():reason,Map.of());
         }
     }
+    private static final java.util.regex.Pattern ZERO_DECIMAL =
+            java.util.regex.Pattern.compile("[+-]?(?:0+(?:\\.0*)?|\\.0+)(?:[Ee][+-]?[0-9]+)?");
+    private static boolean singleZeroDecimal(Attributes attrs,int tag) {
+        if (attrs.getVR(tag)!=VR.DS) return false;
+        String[] values=attrs.getStrings(tag);
+        return values!=null && values.length==1 && values[0]!=null && ZERO_DECIMAL.matcher(values[0].strip()).matches();
+    }
+
     private static Set<String> imageClasses() {
         Set<String> classes=new HashSet<>();
         for (var field:UID.class.getFields()) if (field.getType()==String.class && Modifier.isStatic(field.getModifiers()) && field.getName().contains("ImageStorage")) {
@@ -168,7 +199,7 @@ final class DicomInput {
     static Map<String,String> fields(Object bytes) {
         try { return fields(dataset(bytes)); } catch (Exception e) { return Map.of(); }
     }
-    private static Map<String,String> fields(Dataset dataset) {
+    static Map<String,String> fields(Dataset dataset) {
         Attributes attrs=dataset.attributes(); Map<String,String> result=new LinkedHashMap<>();
         for (var tag:TAGS.entrySet()) {
             String[] values=attrs.getStrings(tag.getKey());
@@ -205,16 +236,31 @@ final class DicomInput {
         return effective;
     }
     private static DicomMetaData unpackOneBit(Object bytes,Attributes effective,int frameIndex,int rows,int columns) throws Exception {
-        Attributes full;
-        try (var in=new DicomInputStream(SourceContent.of(bytes).open())) { full=in.readDataset(); }
-        byte[] packed=full.getBytes(Tag.PixelData);
-        long offset=(long)frameIndex*rows*columns;
-        require(packed!=null && offset+(long)rows*columns<=(long)packed.length*8,"Missing/truncated one-bit PixelData");
-        boolean swap=full.bigEndian() && full.getVR(Tag.PixelData)==VR.OW;
-        byte[] unpacked=new byte[rows*columns];
-        for (int i=0;i<unpacked.length;i++) {
-            long bit=offset+i; int index=(int)(bit>>>3);
-            if (swap) index^=1;
+        int pixels=rows*columns;
+        long bitOffset=(long)frameIndex*pixels;
+        long start=bitOffset>>>3;
+        long end=(bitOffset+pixels+7)>>>3;
+        byte[] packed;
+        boolean swap;
+        try(var in=new DicomInputStream(SourceContent.of(bytes).open())) {
+            in.setIncludeBulkData(DicomInputStream.IncludeBulkData.NO);
+            in.readDatasetUntilPixelData();
+            require(in.tag()==Tag.PixelData,"Missing/truncated one-bit PixelData");
+            swap=in.bigEndian() && in.vr()==VR.OW;
+            if(swap){start&=~1L;end=(end+1)&~1L;}
+            long length=in.unsignedLength();
+            require(end<=length,"Missing/truncated one-bit PixelData");
+            in.skipFully(start);
+            packed=new byte[Math.toIntExact(end-start)];
+            in.readFully(packed);
+            // Seek through the unused tail but confirm its final byte really exists.
+            if(length>end){in.skipFully(length-end-1);require(in.read()!=-1,"Missing/truncated one-bit PixelData");}
+        }
+        byte[] unpacked=new byte[pixels];
+        for(int i=0;i<pixels;i++){
+            long bit=bitOffset+i;
+            int index=(int)((bit>>>3)-start);
+            if(swap)index^=1;
             unpacked[i]=(byte)((packed[index]>>>(bit&7))&1);
         }
         Attributes image=new Attributes(effective,false);

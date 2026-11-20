@@ -1,4 +1,4 @@
-# Offline attachment viewer — 0.61.0
+# Offline attachment viewer — 0.68.0
 
 The file integrity report opens at the top on every visit. Its close × stays in
 the top-right header while the report scrolls; Save report remains at the bottom.
@@ -10,6 +10,8 @@ inventory counts are separated into readable lines. Selected file metadata is th
 first action below the right-pane heading and opens a separate scrolling dialog
 at the top each time.
 The Save menu combines Original file, Originals ZIP… and Image copy (PNG).
+Selected-file, series and exam ZIPs include a scoped inventory and the source
+manifest digest. Only the all-files ZIP includes the full manifest and supplements.
 Image copies use the current DICOM or raster image adjustments. Choose
 **Open PDF…** or drop one converted DICOM PDF onto the viewer.
 The extension does not register as the
@@ -78,7 +80,7 @@ opening, a PDF-reference tab, metadata/inventory and original-file
 downloads. See [extension installation and build instructions](extension/README.md).
 Run `npm --prefix viewer run build` from the repository root to produce
 `src/main/resources/viewer.html`, `target/chrome-extension` and
-`target/dicom-pdf-chrome-0.61.0.zip`.
+`target/dicom-pdf-chrome-0.68.0.zip`.
 
 Archive integrity checks run automatically. The PDF worker hashes decoded
 attachments and returns only their sizes and SHA-256 values for comparison.

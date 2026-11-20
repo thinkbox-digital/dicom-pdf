@@ -1,10 +1,10 @@
-import {windowInputValue,validWindow,voiValue} from './voi-window.mjs';
+import {presentationValue,windowInputValue,validWindow,voiValue} from './voi-window.mjs';
 
 const cachedBounds=new WeakMap();
 
 /** Ignore only complete, exactly zero-filled outer strips that are black in
- * the initial display. Dark anatomy, internal gaps and the source matrix stay
- * intact; window/brightness changes never redefine the fitted area. */
+ * the initial display of a single-frame image. Cine and frame stepping carry
+ * the camera between frames, so they fit the full shared frame dimensions. */
 export function imageFitBounds(image){
   if(!image)return null;
   if(cachedBounds.has(image))return cachedBounds.get(image);
@@ -13,8 +13,9 @@ export function imageFitBounds(image){
   const full={left:0,top:0,right:columns,bottom:rows};
   let bounds=full;
   const window={center:image.windowCenter,width:image.windowWidth,function:image.voiLUTFunction??'LINEAR'};
-  if(!image.color&&validWindow(window)){
-    const zero=voiValue(windowInputValue(image,0),window),black=image.invert?zero===255:zero===0;
+  if(!image.color&&!(image.numberOfFrames>1)&&validWindow(window)){
+    const zero=voiValue(windowInputValue(image,0),window);
+    const black=presentationValue(image.presentationLut,zero,image.invert)===0;
     const pixels=black?image.getPixelData?.():null;
     if(pixels?.length===rows*columns){
       let {left,top,right,bottom}=full;

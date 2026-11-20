@@ -15,7 +15,7 @@ export function selectivePdfAttachments(viewerDirectory) {
   return {name:'selective-pdf-attachments',setup(build){
     build.onLoad({filter:/pdf\.worker\.mjs$/},async({path:filename})=>{
       if(filename!==workerPath)return;
-      let source=await fs.readFile(filename,'utf8');
+      let source='import {readNativeFlate} from "./pdf-attachment-stream.mjs";\n'+await fs.readFile(filename,'utf8');
       source=insertBefore(source,'            dict.set(key, this.getObj(cipherTransform));\n',
         '            if (dict.has(key)) dict.dicomDuplicateKeys = true;\n');
       source=insertBefore(source,'        info("(while reading XRef): " + e);\n',
@@ -69,15 +69,9 @@ const inspectDicomArchival = makeDicomArchivalInspector({BaseStream, Dict, Name,
         throw new Error("Invalid embedded file request.");
       const stream = await pdfManager.ensureCatalog("getDicomAttachmentStream", [key]);
       if (!stream) return null;
-      const bytes = await readDicomAttachmentBytes(stream, limit);
-      if (digestOnly) {
-        const digest = await crypto.subtle.digest("SHA-256", bytes);
-        return {size: bytes.length, digest: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("")};
-      }
-      // A raw stream can be a view of the entire PDF. Clone only its own bytes.
-      return bytes.slice();
+      return readDicomAttachment(stream, limit, digestOnly);
     });
-    async function readDicomAttachmentBytes(stream, limit) {
+    async function readDicomAttachment(stream, limit, digestOnly) {
       const tooLarge = () => new Error("Embedded file exceeds available browser memory.");
       if (stream instanceof FlateStream && stream.str instanceof Stream && typeof DecompressionStream === "function") {
         // Exactly one zlib filter and no predictors or decryption. PDF.js
@@ -87,36 +81,8 @@ const inspectDicomArchival = makeDicomArchivalInspector({BaseStream, Dict, Name,
         raw.reset();
         const encoded = raw.getBytes();
         raw.pos = position;
-        if (encoded.byteLength > limit) throw tooLarge();
-        const reader = new Blob([encoded]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
-        const chunks = [];
-        let length = 0, nativeFailure = false;
-        try {
-          for (;;) {
-            let result;
-            try { result = await reader.read(); }
-            catch { nativeFailure = true; break; }
-            if (result.done) break;
-            length += result.value.length;
-            if (length > limit) {
-              await reader.cancel();
-              throw tooLarge();
-            }
-            chunks.push(result.value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-        if (!nativeFailure) {
-          if (chunks.length === 1) return chunks[0];
-          const bytes = new Uint8Array(length);
-          let offset = 0;
-          for (const chunk of chunks) {
-            bytes.set(chunk, offset);
-            offset += chunk.length;
-          }
-          return bytes;
-        }
+        const result = await readNativeFlate(encoded, limit, digestOnly);
+        if (result !== null) return result;
         // Some older PDFs omit a valid zlib trailer. Keep PDF.js's decoder.
       }
       stream.reset();
@@ -127,10 +93,15 @@ const inspectDicomArchival = makeDicomArchivalInspector({BaseStream, Dict, Name,
       }
       const bytes = stream.getBytes();
       if (bytes.length > limit) throw tooLarge();
-      return bytes;
+      if (digestOnly) {
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        return {size: bytes.length, digest: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("")};
+      }
+      // Raw stream bytes may share the entire PDF backing buffer.
+      return bytes.slice();
     }
 `);
-      return {contents:source,loader:'js'};
+      return {contents:source,loader:'js',resolveDir:viewerDirectory};
     });
   }};
 }

@@ -51,7 +51,7 @@ class DesktopTest {
     @Test void validatorUsesReadOnlyVerificationAndConfigurationOverridesSeparateTool()throws Exception{
         Path pdf=Files.writeString(root.resolve("archive.pdf"),"synthetic"),sources=Files.createDirectory(root.resolve("source")),report=root.resolve("report.json"),config=Files.writeString(root.resolve("trust.json"),"{}");
         var plain=new DesktopRequest(false,pdf.toString(),"",sources.toString(),"",false).arguments(report);
-        assertEquals("verify",plain.getFirst());assertTrue(plain.containsAll(List.of("--sources",sources.toString(),"--verapdf",DesktopRequest.VERAPDF)));
+        assertEquals("verify",plain.getFirst());assertTrue(plain.containsAll(List.of("--sources",sources.toString(),"--verapdf",SecurityConfiguration.defaultValidator())));
         var security=new DesktopRequest(false,pdf.toString(),"","",config.toString(),false).arguments(report);
         assertEquals("verify-security",security.getFirst());assertFalse(security.contains("--verapdf"));assertFalse(security.contains("--sources"));assertTrue(security.contains("--security-config"));
         assertEquals("synthetic",Files.readString(pdf));

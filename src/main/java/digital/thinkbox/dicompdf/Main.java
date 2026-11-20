@@ -8,7 +8,15 @@ import java.util.*;
 /** Small command line; runtime recovery and inspection need no browser. */
 public final class Main {
     private Main() {}
-    public static void main(String[] args) { int exit = run(args, System.out, System.err); if (exit != 0) System.exit(exit); }
+    public static void main(String[] args) {
+        applyCompressionDefault();
+        int exit = run(args, System.out, System.err);
+        if (exit != 0) System.exit(exit);
+    }
+
+    static void applyCompressionDefault() {
+        System.getProperties().putIfAbsent(org.apache.pdfbox.filter.Filter.SYSPROP_DEFLATELEVEL, "1");
+    }
     public static int run(String[] args, PrintStream out, PrintStream err) {
         try {
             if (args.length == 0 || args.length == 1 && Set.of("--help", "help").contains(args[0])) { out.print(help()); return 0; }
@@ -59,7 +67,7 @@ public final class Main {
                 }
                 case "verify" -> {
                     Path sources = options.containsKey("--sources") ? Path.of(options.get("--sources")) : null;
-                    String validator = options.getOrDefault("--verapdf", System.getenv("VERAPDF"));
+                    String validator = options.getOrDefault("--verapdf", SecurityConfiguration.defaultValidator());
                     var result = PackageTools.verify(input, sources, validator);
                     out.print(result.readable());
                     if (options.containsKey("--output")) saveText(input, Path.of(options.get("--output")), result.json(), sources);

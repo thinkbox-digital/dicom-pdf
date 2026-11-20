@@ -5,7 +5,7 @@ import { readSourceWindowPresets } from './source-window-presets.mjs';
 import { validWindow } from './voi-window.mjs';
 import { inflateDicomBytes } from './bounded-inflate.mjs';
 import { expandSegmentedPalette } from './segmented-palette.mjs';
-import { lookupModalityValue, readModalityLut, readVoiLut } from './modality-lut.mjs';
+import { lookupModalityValue, readModalityLut, readPresentationLut, readVoiLut } from './modality-lut.mjs';
 import { isZeroPixelSpacing } from './display-status.mjs';
 import { PARAMETRIC_MAP_SOP, floatingPixelType, validFloatingPixelType, isPaddingSample } from './parametric-map.mjs';
 import { Decoder as JpegLosslessDecoder } from 'jpeg-lossless-decoder-js';
@@ -26,8 +26,11 @@ const MAX_INFLATED = workingMemoryBytes();
 let openJPEG, charLS;
 
 function requireValue(test, message) { if (!test) throw new Error(message); }
-function parse(bytes, imageId, previewEntry, sourceFrame,sourceParsing=null,requireEmptyColorProfile=false) {
-  const ds = parseDicomCompatible(bytes, {sourceParsing,inflater:(original,offset)=>inflateDicomBytes(original,offset,{maxBytes:MAX_INFLATED})});
+export function parseImageDataset(bytes,sourceParsing){
+  return parseDicomCompatible(bytes,{sourceParsing,inflater:(original,offset)=>inflateDicomBytes(original,offset,{maxBytes:MAX_INFLATED})});
+}
+function parse(bytes, imageId, previewEntry, sourceFrame,sourceParsing=null,requireEmptyColorProfile=false,readDataset=parseImageDataset) {
+  const ds = readDataset(bytes,sourceParsing);
   const str = (tag, source = ds) => source.string(tag)?.trim();
   const n = tag => ds.uint16(tag);
   const syntax = str('x00020010') || sourceParsing?.transferSyntaxUID;
@@ -74,9 +77,15 @@ function parse(bytes, imageId, previewEntry, sourceFrame,sourceParsing=null,requ
   const group = tag => perFrame?.elements[tag]?.items?.[0]?.dataSet || shared?.elements[tag]?.items?.[0]?.dataSet || ds;
   const modality = group('x00289145'), voi = group('x00289132');
   const number = (tag, source = ds) => { const value = str(tag, source); return value === undefined || value === '' ? undefined : Number(value.split('\\')[0]); };
-  requireValue(!ds.elements.x20500010,
-    'VOI or Presentation LUT sequences are not supported in the interactive viewer.');
-  const modalityLut = readModalityLut(ds,signed,syntax!=='1.2.840.10008.1.2.2');
+  const littleEndian=syntax!=='1.2.840.10008.1.2.2';
+  const presentationSequence=ds.elements.x20500010,shape=str('x20500020');
+  let presentationLut=null;
+  if(presentationSequence){
+    requireValue(gray&&!floating&&!shape,'Invalid image Presentation LUT combination.');
+    requireValue(!previewEntry,'The recorded PDF preview does not support a Presentation LUT.');
+    presentationLut=readPresentationLut(presentationSequence,littleEndian);
+  }
+  const modalityLut = readModalityLut(ds,signed,littleEndian);
   requireValue(!modalityLut||sop!==PARAMETRIC_MAP_SOP,'Parametric Maps do not support a Modality LUT.');
   if(modalityLut){
     requireValue(!previewEntry,'The recorded PDF preview does not support a Modality LUT.');
@@ -89,7 +98,8 @@ function parse(bytes, imageId, previewEntry, sourceFrame,sourceParsing=null,requ
   const alternative={center:number('x00281050',voi),width:number('x00281051',voi),function:str('x00281056',voi)||'LINEAR'};
   // Some grayscale exports store a single 0/0 pair in place of a usable window.
   // Treat it as absent for interactive display and use the existing pixel range.
-  const zeroWindowFallback=gray&&!floating&&!previewEntry&&!sampledVoi&&voi===ds&&alternative.function==='LINEAR'
+  const automaticPreview=['auto-min-max-v1','auto-min-max-padding-v2'].includes(previewEntry?.displayAdjustments?.windowMethod);
+  const zeroWindowFallback=gray&&!floating&&(!previewEntry||automaticPreview)&&!sampledVoi&&voi===ds&&alternative.function==='LINEAR'
     &&['x00281050','x00281051'].every(tag=>{
       const element=voi.elements[tag];
       return element&&(!element.vr||element.vr==='DS')&&ZERO_DS.test(str(tag,voi)??'');
@@ -100,19 +110,19 @@ function parse(bytes, imageId, previewEntry, sourceFrame,sourceParsing=null,requ
   if(sampledVoi&&!validWindow(alternative)){
     requireValue(gray&&!floating&&!previewEntry&&(modalityLut||Number.isInteger(slope)&&Number.isInteger(intercept)),
       'VOI or Presentation LUT sequences are not supported in the interactive viewer.');
-    sampledVoiLut=readVoiLut(sampledVoi,signed||intercept<0,syntax!=='1.2.840.10008.1.2.2');
+    sampledVoiLut=readVoiLut(sampledVoi,signed||intercept<0,littleEndian);
   }
-  const voiFunction = sampledVoiLut||floating&&!sourceWindowPresent ? 'LINEAR_EXACT' : alternative.function;
+  const presentationFullRange=presentationLut&&!sampledVoiLut&&!sourceWindow;
+  const voiFunction = sampledVoiLut||presentationFullRange||floating&&!sourceWindowPresent ? 'LINEAR_EXACT' : alternative.function;
   requireValue(!gray || ['LINEAR','LINEAR_EXACT','SIGMOID'].includes(voiFunction), `Unsupported VOI LUT function: ${voiFunction}`);
-  const shape = str('x20500020');
-  const invert = shape ? shape === 'INVERSE' : photo === 'MONOCHROME1';
+  const invert = shape ? shape === 'INVERSE' : !presentationLut&&photo === 'MONOCHROME1';
   const legacyWindow = previewEntry?.displayAdjustments?.windowMethod === 'auto-min-max-v1';
   const padding = floating ? floatingPadding(ds,floating)
     : gray && !sourceWindowPresent && !legacyWindow ? pixelPadding(ds,signed,stored) : null;
   const measures = group('x00289110');
   const geometry = previewEntry && previewEntry.displayAdjustments?.geometryMethod === undefined
     ? {ratio:1,source:'legacy'} : imageAspect(ds,measures,rows,columns,!previewEntry);
-  return {ds, str, imageId, previewEntry, syntax, rows, columns, samples, bits, stored, highBit, signed, photo, gray, wideRgb, floating, frame, frameCount, el, slope, intercept, modalityLut, sampledVoiLut, sourceWindow, zeroWindowFallback, voiFunction, invert, padding, geometry, sourceOrientation:readSourceOrientation(ds,perFrame,shared), sourceWindowPresets:readSourceWindowPresets(ds,{perFrame,shared}), planar};
+  return {ds, str, imageId, previewEntry, syntax, rows, columns, samples, bits, stored, highBit, signed, photo, gray, wideRgb, floating, frame, frameCount, el, slope, intercept, modalityLut, sampledVoiLut, presentationLut, presentationFullRange, sourceWindow, zeroWindowFallback, voiFunction, invert, padding, geometry, sourceOrientation:readSourceOrientation(ds,perFrame,shared), sourceWindowPresets:readSourceWindowPresets(ds,{perFrame,shared}), planar};
 }
 
 /** Source-only orientation provenance. Rendering geometry deliberately stays unitless. */
@@ -332,11 +342,17 @@ function finish(c, decoded) {
   const range=c.modalityLut?[lutMin,lutMax]:[min*slope+intercept,max*slope+intercept].sort((a,b)=>a-b);
   const hasSourceWindow=!!c.sourceWindow;
   const legacyWindow=c.previewEntry?.displayAdjustments?.windowMethod === 'auto-min-max-v1';
-  if (c.gray && !c.sampledVoiLut && !hasSourceWindow && !legacyWindow) requireValue(Number.isFinite(validMin) && Number.isFinite(validMax),'No non-padding pixels are available for automatic windowing.');
-  const windowRange=c.modalityLut?[validLutMin,validLutMax]:[validMin*slope+intercept,validMax*slope+intercept].sort((a,b)=>a-b);
+  if (c.gray && !c.sampledVoiLut && !hasSourceWindow && !legacyWindow && !c.presentationFullRange) requireValue(Number.isFinite(validMin) && Number.isFinite(validMax),'No non-padding pixels are available for automatic windowing.');
+  let windowRange=c.modalityLut?[validLutMin,validLutMax]:[validMin*slope+intercept,validMax*slope+intercept].sort((a,b)=>a-b);
+  if(c.presentationFullRange){
+    // Without VOI, the table maps the preceding stage's full output domain.
+    const domain=2**(c.stored-c.signed),first=c.signed?-domain:0,last=domain-1;
+    windowRange=c.modalityLut?[0,2**c.modalityLut.bits-1]:[first*slope+intercept,last*slope+intercept].sort((a,b)=>a-b);
+  }
   const span=windowRange[1]-windowRange[0];
-  const automaticWidth=c.floating ? span||1 : Math.max(1,span+1);
-  const automaticCenter=c.floating ? windowRange[0]+span/2 : (windowRange[0]+windowRange[1]+1)/2;
+  const exactAutomatic=c.floating||c.presentationFullRange;
+  const automaticWidth=exactAutomatic ? span||1 : Math.max(1,span+1);
+  const automaticCenter=exactAutomatic ? windowRange[0]+span/2 : (windowRange[0]+windowRange[1]+1)/2;
   // Color pixels are already normalized to 8-bit RGB. A DICOM LINEAR
   // window of 128/256 maps every channel value back to itself.
   const width=c.sampledVoiLut?255:c.previewEntry?Number(c.previewEntry.displayAdjustments?.windowWidth):c.gray?(c.sourceWindow?.width??automaticWidth):256;
@@ -345,8 +361,9 @@ function finish(c, decoded) {
   const image={imageFrame:{},imageId:c.imageId,rows:c.rows,columns:c.columns,width:c.columns,height:c.rows,
     minPixelValue:min,maxPixelValue:max,slope,intercept,windowCenter:center,windowWidth:width,voiLUTFunction:c.voiFunction,
     color:!c.gray,rgba:!c.gray,numberOfComponents:c.gray?1:4,invert:c.gray&&c.invert,rowPixelSpacing:c.geometry.ratio,columnPixelSpacing:1,
-    numberOfFrames:c.frameCount,sizeInBytes:pixels.byteLength+(c.modalityLut?.values.byteLength??0)+(c.sampledVoiLut?.values.byteLength??0),getPixelData:()=>pixels,
-    ...(c.modalityLut?{modalityLut:c.modalityLut}:{}),...(c.sampledVoiLut?{sampledVoiLut:c.sampledVoiLut}:{}),...(c.floating&&c.padding?{pixelPadding:c.padding}:{})};
+    numberOfFrames:c.frameCount,sizeInBytes:pixels.byteLength+(c.modalityLut?.values.byteLength??0)+(c.sampledVoiLut?.values.byteLength??0)+(c.presentationLut?.values.byteLength??0),getPixelData:()=>pixels,
+    ...(c.modalityLut?{modalityLut:c.modalityLut}:{}),...(c.sampledVoiLut?{sampledVoiLut:c.sampledVoiLut}:{}),
+    ...(c.presentationLut?{presentationLut:c.presentationLut}:{}),...(c.floating&&c.padding?{pixelPadding:c.padding}:{})};
   // The custom CPU renderer applies the source rescale and window to stored samples.
   // Declare the loader's identity pre-scale so Cornerstone keeps the float buffer.
   if(c.floating)image.preScale={scaled:false,scalingParameters:{rescaleSlope:1,rescaleIntercept:0}};
@@ -436,8 +453,8 @@ async function browserJpeg(c){
 }
 
 /** Browser-safe compressed decoding, bundled locally without uploads or codec fetches. */
-export async function decodeDicomAsync(bytes,imageId,previewEntry=null,sourceFrame=previewEntry?.sourceFrame??1,{sourceParsing=null,requireEmptyColorProfile=false}={}){
-  const c=parse(bytes,imageId,previewEntry,sourceFrame,sourceParsing,requireEmptyColorProfile);
+export async function decodeDicomAsync(bytes,imageId,previewEntry=null,sourceFrame=previewEntry?.sourceFrame??1,{sourceParsing=null,requireEmptyColorProfile=false,readDataset=parseImageDataset}={}){
+  const c=parse(bytes,imageId,previewEntry,sourceFrame,sourceParsing,requireEmptyColorProfile,readDataset);
   if(NATIVE.has(c.syntax)||c.syntax===RLE||JPEG_LOSSLESS.has(c.syntax))return decodeParsed(c);
   if(c.syntax===JPEG_EXTENDED && c.bits===16){
     requireValue(c.gray && !c.signed && c.stored<=12 && c.highBit===c.stored-1,
@@ -454,6 +471,7 @@ export async function decodeDicomAsync(bytes,imageId,previewEntry=null,sourceFra
 export function applyPreviewDisplay(decoded,entry){
   requireValue(entry.status==='rendered'&&entry.displayRejected===false,entry.reason||'Source was rejected for preview display.');
   requireValue(!decoded.image.modalityLut,'The recorded PDF preview does not support a Modality LUT.');
+  requireValue(!decoded.image.presentationLut,'The recorded PDF preview does not support a Presentation LUT.');
   requireValue(Number.isInteger(entry.sourceFrame)&&entry.sourceFrame>=1&&entry.sourceFrame<=(decoded.frameCount??1)&&entry.sourceFrame===(decoded.sourceFrame??1),'Preview source frame is unavailable.');
   const display=entry.displayAdjustments;requireValue(display&&typeof display==='object','Preview display adjustments are missing.');
   const number=key=>{const value=Number(display[key]);requireValue(typeof display[key]==='string'&&display[key].trim()!==''&&Number.isFinite(value),`Invalid preview ${key}.`);return value;};

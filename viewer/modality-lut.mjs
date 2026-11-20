@@ -8,15 +8,26 @@ export function readModalityLut(dataset, signed, littleEndian) {
   const sequence = dataset.elements.x00283000;
   if (!sequence) return null;
   if((sequence.vr&&sequence.vr!=='SQ')||sequence.items?.length!==1)throw new Error('Invalid Modality LUT.');
-  const {first,values}=readSampledLut(sequence.items[0].dataSet,signed,littleEndian,'Modality',[8,16]);
-  return {first,values};
+  return readSampledLut(sequence.items[0].dataSet,signed,littleEndian,'Modality',[8,16]);
 }
+
+const grayscalePrecisions=[8,9,10,11,12,13,14,15,16];
 
 /** First sampled VOI alternative. Descriptors may encode signed first input. */
 export function readVoiLut(sequence,signed,littleEndian) {
   if((sequence.vr&&sequence.vr!=='SQ')||!sequence.items?.length)throw new Error('Invalid VOI LUT.');
-  return readSampledLut(sequence.items[0].dataSet,signed,littleEndian,'VOI',
-    Array.from({length:9},(_,index)=>8+index));
+  return readSampledLut(sequence.items[0].dataSet,signed,littleEndian,'VOI',grayscalePrecisions);
+}
+
+/** Image Presentation LUT from DICOM PS3.3 C.11.4 and C.11.6. */
+export function readPresentationLut(sequence,littleEndian) {
+  if((sequence.vr&&sequence.vr!=='SQ')||sequence.items?.length!==1)throw new Error('Invalid Presentation LUT.');
+  const item=sequence.items[0].dataSet;
+  const descriptorVr=item?.elements.x00283002?.vr;
+  if(descriptorVr&&descriptorVr!=='US')throw new Error('Invalid Presentation LUT descriptor.');
+  const lut=readSampledLut(item,false,littleEndian,'Presentation',grayscalePrecisions);
+  if(lut.first!==0)throw new Error('Invalid Presentation LUT first mapped value.');
+  return lut;
 }
 
 function readSampledLut(item,signed,littleEndian,name,precisions) {

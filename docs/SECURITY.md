@@ -95,7 +95,7 @@ not modify its bytes or signature coverage. CLI no-overwrite rules are unchanged
 
 ## Desktop certificate selection
 
-Launch `java -jar dist/dicom-pdf-0.19.0-desktop.jar`. The single **Signing identity
+Launch `java -jar dist/dicom-pdf-0.23.0-desktop.jar`. The single **Signing identity
 or JSON policy** picker accepts an optional `.p12`, `.pfx` or institutional `.json`.
 For a certificate file with the passphrase field blank, click Create. The desktop prompts for its password, following the
 EA-PDF certificate/password workflow. It transfers the password only over private
@@ -154,19 +154,20 @@ Example local configuration (paths resolve relative to the configuration file):
 
 ```sh
 mvn verify
-java -jar dist/dicom-pdf-0.19.0.jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
-java -jar dist/dicom-pdf-0.19.0.jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
+java -jar dist/dicom-pdf-0.23.0.jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
+java -jar dist/dicom-pdf-0.23.0.jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
 ```
 
-For verification, omit pkcs12, passphraseFile and alias from the configuration;
-no private key is needed. protection and verapdf remain required. trustCertificates
-are selected independently by the verifier, never taken as trusted from the PDF.
+For verification, supply `protection` and omit `pkcs12`, `passphraseFile` and
+`alias`. Select trusted certificates independently in `trustCertificates`.
+The desktop and CLI use the configuration's `verapdf` executable when supplied,
+then the `VERAPDF` environment variable, then `verapdf` on PATH.
 Optional verificationTime is an ISO-8601 UTC reference instant. It changes the
 verifier's evaluation time and is explicitly reported as a verifier reference,
 not independently established historical evidence. Default is the current time.
 
 Secure creation requires a **new** output path outside the source directory and
-an explicitly configured veraPDF executable. It validates preservation, metadata,
+a working local veraPDF executable. It validates preservation, metadata,
 external-input reconciliation and PDF/A-4f before and after signing. Invalid
 signatures, failed trust validation, revoked certificates and other checked
 security failures prevent publication. Missing trust/revocation evidence remains
@@ -255,9 +256,9 @@ checks to pass. A failed or indeterminate required protection check publishes
 no PDF; no weaker substitute is produced.
 
 ```sh
-java -jar dist/dicom-pdf-0.19.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
-java -jar dist/dicom-pdf-0.19.0.jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
-java -jar dist/dicom-pdf-0.19.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
+java -jar dist/dicom-pdf-0.23.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
+java -jar dist/dicom-pdf-0.23.0.jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
+java -jar dist/dicom-pdf-0.23.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
 ```
 
 Renewal needs `PADES_B_LTA`, the TSA URL, trust/evidence and veraPDF. Archives
@@ -357,13 +358,13 @@ signature and trust checks apply independently of transport.
 ## External evidence renewal
 
 ```sh
-java -jar dist/dicom-pdf-0.19.0.jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
-java -jar dist/dicom-pdf-0.19.0.jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
-java -jar dist/dicom-pdf-0.19.0.jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
+java -jar dist/dicom-pdf-0.23.0.jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
+java -jar dist/dicom-pdf-0.23.0.jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
+java -jar dist/dicom-pdf-0.23.0.jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
 ```
 
 Renewal requires a signing identity, timestamped protection, explicit trust/CRLs
-and passing archive byte/metadata/PDF/A checks. Verification needs public trust
+and passing archive byte/metadata/PDF/A checks. New evidence is verified using the completion clock so the check accounts for time spent processing the PDF. Verification needs public trust
 only. Its report concerns external evidence; run verify/verify-security separately
 for archive structure, metadata, original signatures and PDF/A. Reports can exit
 2 because acquisition/completeness remain UNKNOWN even when the chain passes.

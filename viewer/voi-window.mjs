@@ -59,6 +59,15 @@ export function windowInputValue(image,stored){
   return lut?sampledVoiValue(lut,value):value;
 }
 
+/** Scale the unrounded VOI output to the sampled Presentation LUT's input domain. */
+export function presentationValue(lut,gray,invert){
+  if(lut){
+    const index=Math.round(gray*(lut.values.length-1)/255);
+    gray=lut.values[index]*255/(2**lut.bits-1);
+  }
+  return invert?255-gray:gray;
+}
+
 /** Floating-point samples can be windowed directly without an integer LUT. */
 export function floatingVoi(image,window,{invert=false}={}){
   const normalized=normalizeWindow(window);
@@ -79,7 +88,7 @@ export function buildStoredVoiLut(image,window,{invert=false}={}){
   for(let stored=minimum;stored<=maximum;stored++){
     const modality=windowInputValue(image,stored);
     if(!Number.isFinite(modality))throw new Error('The modality transformation exceeds the display range.');
-    const value=evaluate(modality,normalized);values[stored-minimum]=invert?255-value:value;
+    values[stored-minimum]=presentationValue(image.presentationLut,evaluate(modality,normalized),invert);
   }
   return {values,offset:-minimum,minimum,maximum};
 }

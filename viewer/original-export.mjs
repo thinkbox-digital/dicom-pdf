@@ -2,11 +2,6 @@ import {workingMemoryBytes} from './working-memory.mjs';
 import {attachmentBytes} from './pdf-attachments.mjs';
 import { Zip, ZipPassThrough, strToU8 } from 'fflate';
 
-const MAX_ORIGINAL = Number.MAX_SAFE_INTEGER;
-const MAX_SUPPLEMENT = Number.MAX_SAFE_INTEGER;
-const MAX_ORIGINALS = Number.MAX_SAFE_INTEGER;
-const MAX_PACKAGE = Number.MAX_SAFE_INTEGER;
-const MAX_ARCHIVE = Math.min(0xffffffff,workingMemoryBytes()); // Runtime allocation and ZIP32 offsets.
 const MAX_FILES = 65535; // ZIP32 directory field.
 const CHUNK = 256 * 1024;
 
@@ -80,6 +75,7 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
   try {
     aborted(signal);
     const selected=selectEntries(entries,scope,selectedIndex),files=sourceAttachments(attachments);
+    const budget=workingMemoryBytes(),limit=Math.min(0xffffffff,budget);
     const names=new Set(),allOriginalNames=new Set(),recoveryPaths={children:new Map()};
     for(const entry of entries) {
       if(!entry||typeof entry.attachment!=='string'||allOriginalNames.has(entry.attachment))
@@ -88,8 +84,9 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
     }
     let manifest=null,originalManifest=null;
     if(manifestBytes!==null) {
-      originalManifest=bytesOf(manifestBytes).slice();
-      if(originalManifest.length>MAX_SUPPLEMENT)refuse('LIMIT_EXCEEDED','The manifest exceeds the export size limit.');
+      const manifestData=bytesOf(manifestBytes);
+      if(manifestData.length>limit)refuse('LIMIT_EXCEEDED','The manifest exceeds the export size limit.');
+      originalManifest=manifestData.slice();
       try {manifest=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(originalManifest));}
       catch {refuse('INVALID_MANIFEST','The package manifest cannot be read.');}
       if(!Array.isArray(manifest.images)||manifest.images.length!==entries.length)
@@ -108,8 +105,8 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       if(embedded&&!sameBytes(await attachmentBytes(embedded),originalManifest))
         refuse('MANIFEST_MISMATCH','The embedded manifest differs from the loaded manifest.');
     }
-    const planned=[];let originalTotal=0,payloadTotal=0;
-    function plan(name,bytes,expected=null,original=false) {
+    const planned=[];let payloadTotal=0,largestFile=0;
+    function plan(name,file,size,expected=null,original=false) {
       safePath(name);
       // Ordinary unzip tools on common desktop filesystems must not overwrite a
       // distinct original because only letter case or Unicode composition differs.
@@ -123,11 +120,11 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       if(node.file)refuse('DUPLICATE_PATH','Distinct files collide at the same portable recovery path.');
       if(node.children.size)refuse('DUPLICATE_PATH','A recovery path is used as both a file and a directory; ZIP export was refused.');
       node.file=true;
-      if(bytes.length>(original?MAX_ORIGINAL:MAX_SUPPLEMENT))refuse('LIMIT_EXCEEDED','An embedded file exceeds its export size limit.');
-      payloadTotal+=bytes.length;
-      if(original)originalTotal+=bytes.length;
-      if(originalTotal>MAX_ORIGINALS||payloadTotal>MAX_PACKAGE)refuse('LIMIT_EXCEEDED','The selected files exceed the export size limit.');
-      planned.push({name,bytes,expected,original});
+      if(!Number.isSafeInteger(size)||size<0)refuse('SIZE_MISMATCH','An embedded file has an invalid recorded byte size.');
+      payloadTotal+=size;
+      largestFile=Math.max(largestFile,size);
+      if(payloadTotal>limit)refuse('LIMIT_EXCEEDED','This ZIP needs more available browser memory or ZIP64 support.');
+      planned.push({name,file,size,expected,original});
       if(planned.length>MAX_FILES)refuse('LIMIT_EXCEEDED','Too many embedded files were selected for one ZIP export.');
     }
     const sourceRows=[];
@@ -136,13 +133,9 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       names.add(entry.attachment);
       const file=files.get(entry.attachment);
       if(!file)refuse('MISSING_ORIGINAL','An original attachment is missing; export was refused.');
-      const bytes=await attachmentBytes(file);
-      aborted(signal);
-      if(!Number.isSafeInteger(entry.size)||entry.size<0||bytes.length!==entry.size)
-        refuse('SIZE_MISMATCH','An original file does not match its recorded byte size; export was refused.');
       if(!hashShape(entry.sha256))refuse('INVALID_CHECKSUM','An original file has no valid recorded checksum; export was refused.');
       const relative=safePath(entry.sourcePath);
-      plan('originals/'+relative,bytes,entry.sha256.toLowerCase(),true);
+      plan('originals/'+relative,file,entry.size,entry.sha256.toLowerCase(),true);
       sourceRows.push({attachment:entry.attachment,sourcePath:relative,zipPath:'originals/'+relative,
         sopInstanceUID:entry.sopInstanceUID??null,sha256:entry.sha256.toLowerCase(),size:entry.size});
     }
@@ -151,15 +144,14 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       if(allOriginalNames.has(name))continue;
       const expected=manifest?.artifactSha256?.[name];
       if(expected!==undefined&&!hashShape(expected))refuse('INVALID_CHECKSUM','A package supplement has an invalid recorded checksum.');
-      plan('package/'+safePath(name),await attachmentBytes(file),expected?.toLowerCase()||null);
+      const size=file.byteLength??file.content?.byteLength??(await file.readDigest?.())?.size??(await attachmentBytes(file)).length;
+      plan('package/'+safePath(name),file,size,expected?.toLowerCase()||null);
       aborted(signal);
       resources.push({attachment:name,zipPath:'package/'+name,checksum:expected?'recorded':'not-recorded'});
     }
-    // Legacy file/series subsets retain the full manifest as provenance. An
-    // exam export omits it to avoid carrying metadata about other exams; the
-    // scoped inventory and source-manifest hash provide recovery/provenance.
-    if(originalManifest&&scope!=='study'&&(scope!=='all'||!files.has('manifest.json'))) {
-      plan('package/manifest.json',originalManifest);
+    const subset=scope!=='all';
+    if(originalManifest&&!subset&&!files.has('manifest.json')) {
+      plan('package/manifest.json',{content:originalManifest},originalManifest.length);
       resources.push({attachment:'manifest.json',zipPath:'package/manifest.json',checksum:'derived-from-loaded-manifest'});
     }
     if(originalManifest) {
@@ -169,16 +161,15 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
         const expected=await sha256(originalManifest)+'  manifest.json\n';
         if(new TextDecoder('ascii').decode(sidecarBytes)!==expected)
           refuse('MANIFEST_MISMATCH','The manifest checksum sidecar differs; export was refused.');
-        if(scope!=='all'&&scope!=='study') {plan('package/manifest.sha256',sidecarBytes);resources.push({attachment:'manifest.sha256',zipPath:'package/manifest.sha256',checksum:'matches-loaded-manifest'});}
       }
     }
     const inventory={schemaVersion:1,scope,completeOriginalInventory:scope==='all',clinicalCompleteness:'not-assessed',
       sourceRole:manifest?.sourceRole??'not supplied',
-      originalManifest:originalManifest&&scope!=='study'?'package/manifest.json':null,
-      ...(scope==='study'?{sourceManifestSha256:originalManifest?await sha256(originalManifest):null,
-        selection:{studyInstanceUID:selected[0].fields.StudyInstanceUID}}:{}),
-      originalManifestDescribes:scope==='study'?(originalManifest?'Full input manifest omitted; only its SHA-256 is retained for provenance':'No source manifest supplied')
-        :scope==='all'?'All supplied originals in this ZIP':'The full input package; this ZIP intentionally contains only the selected subset',
+      originalManifest:originalManifest&&!subset?'package/manifest.json':null,
+      ...(subset?{sourceManifestSha256:originalManifest?await sha256(originalManifest):null}:{}),
+      ...(scope==='study'?{selection:{studyInstanceUID:selected[0].fields.StudyInstanceUID}}:{}),
+      originalManifestDescribes:subset?(originalManifest?'Full input manifest omitted; only its SHA-256 is retained for provenance':'No source manifest supplied')
+        :'All supplied originals in this ZIP',
       originals:sourceRows,packageFiles:resources};
     const recovery=[
       'DICOM original-file recovery ZIP',
@@ -186,16 +177,18 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       'Original files are under originals/ with their supplied relative paths and unchanged bytes.',
       'DICOMDIR-relative File IDs retain their original hierarchy. A subset can have references to files outside this ZIP.',
       'scope.json maps included originals to attachment names, byte sizes and recorded SHA-256 hashes.',
-      scope==='study'?(originalManifest?'This exam ZIP omits the full input manifest and package supplements, which can describe other exams. The source manifest SHA-256 is recorded in scope.json.'
-        :'This exam ZIP includes only selected originals and recovery instructions. No input manifest was supplied.')
-        :'The full input manifest, when present, is retained under package/ as provenance; it can describe originals outside a subset ZIP.',
+      subset?(originalManifest?'This ZIP omits the full input manifest and package supplements. The source manifest SHA-256 is recorded in scope.json.'
+        :'This ZIP includes only selected originals and recovery instructions. No input manifest was supplied.')
+        :'The full input manifest, when present, is retained under package/ as provenance.',
       'Compare every recovered original against its scope.json SHA-256 before use. Checksums detect disagreement; they do not establish authenticity or clinical completeness.',
       'No source was de-identified, edited or repaired. Keep archival masters and approved de-identified derivatives separate.',
       '',
     ].join('\n');
-    plan('scope.json',jsonBytes(inventory));plan('RECOVERY.txt',strToU8(recovery));
+    for(const [name,content] of [['scope.json',jsonBytes(inventory)],['RECOVERY.txt',strToU8(recovery)]]){
+      plan(name,{content},content.length);
+    }
     const capacity=payloadTotal+planned.reduce((total,file)=>total+strToU8(file.name).length*2+512,1024);
-    if(capacity>MAX_ARCHIVE)refuse('LIMIT_EXCEEDED','This ZIP needs more available browser memory or ZIP64 support.');
+    if(capacity>limit||capacity+2*largestFile>budget)refuse('LIMIT_EXCEEDED','This ZIP needs more available browser memory or ZIP64 support.');
     const output=new Uint8Array(capacity);let written=0,packedBytes=0,completed=0,failure=null;
     zip=new Zip((error,chunk)=>{
       if(error){failure=error;return;}
@@ -209,7 +202,9 @@ export async function buildOriginalsZip({entries,attachments,manifestBytes=null,
       aborted(signal);progress('checking');
       // Snapshot one source at a time. Neither a caller mutation while hashing nor
       // later modification of the attachment array can change already checked bytes.
-      const snapshot=file.bytes.slice();
+      const bytes=await attachmentBytes(file.file);
+      if(bytes.length!==file.size)refuse('SIZE_MISMATCH','An embedded file does not match its recorded byte size; export was refused.');
+      const snapshot=bytes.slice();
       if(file.expected && await sha256(snapshot)!==file.expected)
         refuse(file.original?'CHECKSUM_MISMATCH':'ARTIFACT_MISMATCH','A recorded checksum does not match; ZIP export was refused.');
       aborted(signal);

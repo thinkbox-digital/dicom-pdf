@@ -1,4 +1,4 @@
-import {decodeDicomAsync} from './native-dicom.mjs';
+import {decodeDicomAsync,parseImageDataset} from './native-dicom.mjs';
 import {readDicomDocument} from './dicom-document.mjs';
 import {readDicomMetadata} from './metadata-export.mjs';
 import {inspectArchivedCt} from './input-ingestion.mjs';
@@ -6,6 +6,28 @@ import {workingMemoryBytes} from './working-memory.mjs';
 
 const CACHE_BYTES=128*1024*1024;
 const MAX_QUEUE=64;
+// Account for the inflated backing store and reserve space for parser objects.
+// Native datasets share their original backing buffer with the source cache.
+function fitsParsedCache(ds,bytes,budget){
+  let size=ds.byteArray.buffer===bytes.buffer?0:ds.byteArray.buffer.byteLength;
+  const pending=[ds];
+  while(pending.length){
+    if(size>budget)return false;
+    const item=pending.pop();
+    size+=256+(item.warnings?.length||0)*256;
+    for(const tag in item.elements){
+      const element=item.elements[tag];
+      size+=256+(element.fragments?.length||0)*128+(element.basicOffsetTable?.length||0)*8;
+      if(size>budget)return false;
+      for(const child of element.items||[]){
+        size+=128;
+        if(size>budget)return false;
+        if(child.dataSet)pending.push(child.dataSet);
+      }
+    }
+  }
+  return size<=budget;
+}
 function checkAbort(job){return job.cancelled;}
 async function sha256(bytes){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),n=>n.toString(16).padStart(2,'0')).join('');}
 function safeCode(error){
@@ -20,10 +42,20 @@ function safeCode(error){
 }
 
 /** Local, serialized decode protocol. Exported for protocol/cache tests without a DOM. */
-export function createDecoderWorkerRuntime({decode=decodeDicomAsync,postMessage,cacheBytes=CACHE_BYTES,allocationBytes=workingMemoryBytes()}={}){
+export function createDecoderWorkerRuntime({decode=decodeDicomAsync,parseDataset=parseImageDataset,postMessage,cacheBytes=CACHE_BYTES,allocationBytes=workingMemoryBytes()}={}){
   if(typeof postMessage!=='function')throw new TypeError('A decoder reply channel is required.');
   const sources=new Map(),pendingRegistrations=new Map();let totalBytes=0,workingSource=null,queue=[],active=null,epoch=0,sequence=0;
-  let sourceCacheBytes=cacheBytes;
+  let sourceCacheBytes=cacheBytes,parsed=null;
+  function readDataset(bytes,sourceParsing){
+    const mode=sourceParsing?.mode,syntax=sourceParsing?.transferSyntaxUID;
+    if(parsed?.bytes===bytes&&parsed.mode===mode&&parsed.syntax===syntax)return parsed.ds;
+    parsed=null;
+    const ds=parseDataset(bytes,sourceParsing);
+    const available=Math.min(sourceCacheBytes,allocationBytes)-totalBytes-(workingSource?.bytes.byteLength||0);
+    if(Number(ds.string('x00280008'))>1&&available>0&&fitsParsedCache(ds,bytes,available))
+      parsed={bytes,mode,syntax,ds};
+    return ds;
+  }
   const send=(message,transfers=[])=>postMessage(message,transfers);
   const error=(job,code)=>send({type:'error',id:job.id,epoch:job.epoch,code});
   function cached(key){if(workingSource?.key===key)return workingSource.bytes;const bytes=sources.get(key);if(bytes){sources.delete(key);sources.set(key,bytes);}return bytes;}
@@ -51,7 +83,7 @@ export function createDecoderWorkerRuntime({decode=decodeDicomAsync,postMessage,
         else send({type:'cancelled',id:job.id,epoch:job.epoch});
         return;
       }
-      const result=await decode(bytes,job.imageId,job.previewEntry,job.sourceFrame,{sourceParsing:job.sourceParsing,requireEmptyColorProfile:job.requireEmptyColorProfile===true});
+      const result=await decode(bytes,job.imageId,job.previewEntry,job.sourceFrame,{sourceParsing:job.sourceParsing,requireEmptyColorProfile:job.requireEmptyColorProfile===true,readDataset});
       if(job.cancelled||job.epoch!==epoch){send({type:'cancelled',id:job.id,epoch:job.epoch});return;}
       const pixels=result?.image?.getPixelData?.();
       if(!ArrayBuffer.isView(pixels)||pixels instanceof DataView)throw new Error('Invalid pixel matrix.');
@@ -59,6 +91,7 @@ export function createDecoderWorkerRuntime({decode=decodeDicomAsync,postMessage,
       const transfers=[pixels.buffer];
       if(image.modalityLut)transfers.push(image.modalityLut.values.buffer);
       if(image.sampledVoiLut)transfers.push(image.sampledVoiLut.values.buffer);
+      if(image.presentationLut)transfers.push(image.presentationLut.values.buffer);
       send({type:'decoded',id:job.id,epoch:job.epoch,result:{...result,image,pixels}},transfers);
     }catch(cause){if(!job.cancelled&&job.epoch===epoch)error(job,safeCode(cause));else send({type:'cancelled',id:job.id,epoch:job.epoch});}
     finally{active=null;void pump();}
@@ -67,7 +100,7 @@ export function createDecoderWorkerRuntime({decode=decodeDicomAsync,postMessage,
     if(!message||typeof message!=='object')return;
     const job={id:message.id,epoch:message.epoch};
     if(message.type==='clear'){
-      epoch=message.epoch;sources.clear();totalBytes=0;workingSource=null;queue=[];if(active)active.cancelled=true;
+      epoch=message.epoch;sources.clear();totalBytes=0;workingSource=null;parsed=null;queue=[];if(active)active.cancelled=true;
       sourceCacheBytes=Number.isSafeInteger(message.sourceCacheBytes)&&message.sourceCacheBytes>0
         ?Math.min(cacheBytes,message.sourceCacheBytes):cacheBytes;
       for(const registration of pendingRegistrations.values())registration.cancelled=true;
@@ -87,6 +120,7 @@ export function createDecoderWorkerRuntime({decode=decodeDicomAsync,postMessage,
       try{
         if(await sha256(message.bytes)!==message.key.toLowerCase())return error(job,'CHECKSUM_MISMATCH');
         if(registration.cancelled||job.epoch!==epoch)return send({type:'cancelled',id:job.id,epoch:job.epoch});
+        parsed=null;
         const evicted=[];
         if(workingSource){evicted.push(workingSource.key);workingSource=null;}
         if(sources.has(message.key)){totalBytes-=sources.get(message.key).byteLength;sources.delete(message.key);}
