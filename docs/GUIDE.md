@@ -18,7 +18,7 @@ and reports.
 You need Java 21 and a graphical desktop. Launch the desktop JAR in `dist/`:
 
 ```sh
-java -jar dist/dicom-pdf-0.23.0-desktop.jar
+java -jar dist/dicom-pdf-0.24.0-desktop.jar
 ```
 
 If you use IntelliJ, the **Archival DICOM Desktop** run configuration opens the
@@ -192,7 +192,7 @@ in a browser. The viewer runs locally with its code and codecs included.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.68.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.69.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
@@ -470,7 +470,7 @@ conversion time. To favor smaller archives, pass
 `-Dorg.apache.pdfbox.filter.deflatelevel=-1` before `-jar` to use the PDFBox
 default compression level. Both settings preserve the original attachment bytes.
 
-For command-line options, run `java -jar dist/dicom-pdf-0.23.0.jar --help`.
+For command-line options, run `java -jar dist/dicom-pdf-0.24.0.jar --help`.
 The project uses Apache-2.0 with retained [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Further reading

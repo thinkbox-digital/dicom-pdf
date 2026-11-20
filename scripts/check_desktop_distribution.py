@@ -56,7 +56,7 @@ def check_painted_reference(java, jar, work):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--version', default='0.23.0')
+    parser.add_argument('--version', default='0.24.0')
     parser.add_argument('--verapdf', default=os.environ.get('VERAPDF'),
                         help='validate PDF/A-4f and verify byte-exact round trip using this executable')
     args = parser.parse_args()

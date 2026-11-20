@@ -8,7 +8,7 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>dicom-pdf</artifactId>
-  <version>0.23.0</version>
+  <version>0.24.0</version>
   <name>DICOM PDF pilot</name>
   <properties>
     <dcm4che.version>5.33.1</dcm4che.version>

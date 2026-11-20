@@ -49,7 +49,7 @@ in your browser and choose **Open PDF…**. The standalone viewer and Chrome
 extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. The current application distribution
-(`0.23.0`) embeds viewer `0.68.0` in new archives.
+(`0.24.0`) embeds viewer `0.69.0` in new archives.
 
 The updated viewer also opens DICOM Surface Segmentation attachments in a
 rotatable **3D surface** tab, including older exports such as `LASegSample.dcm`.
@@ -205,7 +205,7 @@ For command-line conversion, extract the chosen ZIP into a folder under
 python3 -m zipfile -e \
   target/anonymized-in/exam.zip \
   target/anonymized-series
-java -jar dist/dicom-pdf-0.23.0.jar create \
+java -jar dist/dicom-pdf-0.24.0.jar create \
   --input target/anonymized-series \
   --output out/anonymized-test.pdf \
   --source-role deidentified-copy
