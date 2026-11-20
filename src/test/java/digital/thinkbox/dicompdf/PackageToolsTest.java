@@ -298,7 +298,9 @@ class PackageToolsTest {
         Path input = temporary.resolve("input"); SyntheticFixtures.writeDeidentifiedCopy(input);
         Path pdf = temporary.resolve("test.pdf"); DicomPdf.create(input, pdf);
         var out = new ByteArrayOutputStream(); var err = new ByteArrayOutputStream();
-        int status = Main.run(new String[]{"verify", "--input", pdf.toString()}, new PrintStream(out), new PrintStream(err));
+        Path missingValidator = temporary.resolve("missing-verapdf");
+        int status = Main.run(new String[]{"verify", "--input", pdf.toString(), "--verapdf", missingValidator.toString()},
+                new PrintStream(out), new PrintStream(err));
         assertEquals(2, status, "No veraPDF execution means conformance remains unchecked");
         assertTrue(out.toString(StandardCharsets.UTF_8).contains("NOT_CHECKED"));
         out.reset();
