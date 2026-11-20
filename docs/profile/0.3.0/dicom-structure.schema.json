@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Additional DICOM structure inventory version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "standardEdition",
+    "rulesVersion",
+    "validator",
+    "fullIodValidation",
+    "notAssessed",
+    "images"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "standardEdition": {
+      "const": "2026d"
+    },
+    "rulesVersion": {
+      "const": "1"
+    },
+    "validator": {
+      "type": "string"
+    },
+    "fullIodValidation": {
+      "const": false
+    },
+    "notAssessed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "images": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attachment",
+          "sourcePath",
+          "sha256",
+          "sopInstanceUID",
+          "status",
+          "checks",
+          "expectedPixelBytes",
+          "suppliedPixelBytes",
+          "issues"
+        ],
+        "properties": {
+          "attachment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourcePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sopInstanceUID": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_APPLICABLE"
+            ]
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "scope"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "PASS",
+                    "FAIL",
+                    "UNKNOWN",
+                    "NOT_APPLICABLE"
+                  ]
+                },
+                "scope": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "expectedPixelBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "suppliedPixelBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "severity",
+                "code",
+                "path",
+                "message",
+                "specification"
+              ],
+              "properties": {
+                "severity": {
+                  "enum": [
+                    "ERROR",
+                    "WARNING"
+                  ]
+                },
+                "code": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "specification": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

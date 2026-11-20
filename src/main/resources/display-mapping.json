@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "extension": "dicom-source-display",
+  "baseProfile": "dicom-images 0.3.0",
+  "standardEdition": "2026d",
+  "relationship": "Additive, explicitly versioned display extension. Frozen field-mapping.json describes the original baseline; these additional recipe values apply only when recorded in an image displayAdjustments and this document is manifest-hashed. Older baselines retain their recorded square-pixel and auto-min-max-v1 policy.",
+  "padding": {
+    "windowMethod": "auto-min-max-padding-v2",
+    "paddingPolicy": "exclude-stored-range",
+    "pixelPaddingMin": "Lower inclusive stored-sample endpoint from PixelPaddingValue (0028,0120) and optional PixelPaddingRangeLimit (0028,0121), interpreted with PixelRepresentation/BitsStored",
+    "pixelPaddingMax": "Upper inclusive stored-sample endpoint; a missing range limit selects just PixelPaddingValue",
+    "rule": "Exclude these samples before deriving automatic extrema; apply rescale afterward and order the transformed endpoints, including negative slopes. Window center=(low+high+1)/2 and width=max(1,high-low+1), recorded at Java float precision. Keep original source pixels unchanged. If every sample is padding and no complete source window is present, reject the preview explicitly. Source-supplied window pairs remain unchanged.",
+    "specification": "PS3.3 C.7.5.1.1.2; C.11.2.1.2.1"
+  },
+  "geometry": {
+    "geometryMethod": "source-aspect-v1",
+    "geometrySource": "First supplied applicable pair: selected frame PixelMeasuresSequence.PixelSpacing, root PixelSpacing, ImagerPixelSpacing, NominalScannedPixelSpacing, then PixelAspectRatio",
+    "pixelAspectRatio": "Normalized row-height:column-width, represented as rowRatio:1. Values retain row-before-column order. A non-square ratio changes PDF placement and interactive image geometry without altering pixels.",
+    "validation": "The first present pair must contain two finite positive values; PixelAspectRatio requires positive integers. Zero spacing is permitted only for its singleton image dimension and supplies no usable ratio, so display defaults to 1:1. Pilot display ratios are bounded to 1e-6 through 1e6; unsupported geometry is reported, never silently replaced by a lower-priority supplied tag.",
+    "units": "Unitless display ratio, not calibrated patient measurements, patient orientation or a GSDF display calibration",
+    "specification": "PS3.3 10.7.1.3; C.7.6.3.1.7; C.7.6.16.2.1"
+  },
+  "verification": "Reparse original source values and re-render using the recorded policy. A recorded policy selects compatibility behavior; its numeric values are never trusted as source evidence. New recipes validate their source padding/geometry. Existing source-window-0, auto-min-max-v1 and square-pixel recipes remain reproducible."
+}

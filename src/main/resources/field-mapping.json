@@ -1,0 +1,346 @@
+{
+  "schemaVersion": 2,
+  "profile": "dicom-images",
+  "profileVersion": "0.3.0",
+  "xmpNamespace": "https://thinkbox.digital/ns/dicom/2.0/",
+  "xmpProperties": {
+    "schemaVersion": "Literal Text \"2\"",
+    "profile": "Literal Text \"dicom-images\"",
+    "profileVersion": "Literal Text \"0.3.0\"",
+    "sourceRole": "Caller asserted archival-master or deidentified-copy; no deidentification certification",
+    "inventoryJson": "Exact UTF-8 manifest JSON represented as an XMP Text value; all selected DICOM fields and recovery/display mappings live here",
+    "metadataVersion": "Literal Text \"1\" when manifest.metadataXmpVersion is 1; absent in older packages",
+    "metadataSha256": "Lowercase SHA-256 of the exact UTF-8 dicom-metadata.json attachment bytes",
+    "metadataJson": "Exact UTF-8 dicom-metadata.json text, including all readable non-pixel source fields, nested/private tags and complete binary values; see metadata-mapping.json. No trailing LF is added."
+  },
+  "sourceFields": [
+    {
+      "manifestField": "images[].fields.PatientName",
+      "dicomTag": "(0010,0010)",
+      "dicomKeyword": "PatientName",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PatientID",
+      "dicomTag": "(0010,0020)",
+      "dicomKeyword": "PatientID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.StudyInstanceUID",
+      "dicomTag": "(0020,000D)",
+      "dicomKeyword": "StudyInstanceUID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.StudyDate",
+      "dicomTag": "(0008,0020)",
+      "dicomKeyword": "StudyDate",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.StudyTime",
+      "dicomTag": "(0008,0030)",
+      "dicomKeyword": "StudyTime",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.StudyID",
+      "dicomTag": "(0020,0010)",
+      "dicomKeyword": "StudyID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.StudyDescription",
+      "dicomTag": "(0008,1030)",
+      "dicomKeyword": "StudyDescription",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.SeriesInstanceUID",
+      "dicomTag": "(0020,000E)",
+      "dicomKeyword": "SeriesInstanceUID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.SeriesNumber",
+      "dicomTag": "(0020,0011)",
+      "dicomKeyword": "SeriesNumber",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.SeriesDescription",
+      "dicomTag": "(0008,103E)",
+      "dicomKeyword": "SeriesDescription",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.SOPInstanceUID",
+      "dicomTag": "(0008,0018)",
+      "dicomKeyword": "SOPInstanceUID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.SOPClassUID",
+      "dicomTag": "(0008,0016)",
+      "dicomKeyword": "SOPClassUID",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.InstanceNumber",
+      "dicomTag": "(0020,0013)",
+      "dicomKeyword": "InstanceNumber",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.Modality",
+      "dicomTag": "(0008,0060)",
+      "dicomKeyword": "Modality",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PresentationIntentType",
+      "dicomTag": "(0008,0068)",
+      "dicomKeyword": "PresentationIntentType",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.BodyPartExamined",
+      "dicomTag": "(0018,0015)",
+      "dicomKeyword": "BodyPartExamined",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.ViewPosition",
+      "dicomTag": "(0018,5101)",
+      "dicomKeyword": "ViewPosition",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PatientOrientation",
+      "dicomTag": "(0020,0020)",
+      "dicomKeyword": "PatientOrientation",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.ImageLaterality",
+      "dicomTag": "(0020,0062)",
+      "dicomKeyword": "ImageLaterality",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.Laterality",
+      "dicomTag": "(0020,0060)",
+      "dicomKeyword": "Laterality",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.Rows",
+      "dicomTag": "(0028,0010)",
+      "dicomKeyword": "Rows",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.Columns",
+      "dicomTag": "(0028,0011)",
+      "dicomKeyword": "Columns",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PhotometricInterpretation",
+      "dicomTag": "(0028,0004)",
+      "dicomKeyword": "PhotometricInterpretation",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.BitsAllocated",
+      "dicomTag": "(0028,0100)",
+      "dicomKeyword": "BitsAllocated",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.BitsStored",
+      "dicomTag": "(0028,0101)",
+      "dicomKeyword": "BitsStored",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.HighBit",
+      "dicomTag": "(0028,0102)",
+      "dicomKeyword": "HighBit",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PixelRepresentation",
+      "dicomTag": "(0028,0103)",
+      "dicomKeyword": "PixelRepresentation",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.NumberOfFrames",
+      "dicomTag": "(0028,0008)",
+      "dicomKeyword": "NumberOfFrames",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.WindowCenter",
+      "dicomTag": "(0028,1050)",
+      "dicomKeyword": "WindowCenter",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.WindowWidth",
+      "dicomTag": "(0028,1051)",
+      "dicomKeyword": "WindowWidth",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.PresentationLUTShape",
+      "dicomTag": "(2050,0020)",
+      "dicomKeyword": "PresentationLUTShape",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.VOILUTFunction",
+      "dicomTag": "(0028,1056)",
+      "dicomKeyword": "VOILUTFunction",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.RescaleSlope",
+      "dicomTag": "(0028,1053)",
+      "dicomKeyword": "RescaleSlope",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.RescaleIntercept",
+      "dicomTag": "(0028,1052)",
+      "dicomKeyword": "RescaleIntercept",
+      "mapping": "dcm4che decoded textual value; multiple values joined with backslash; absent/blank omitted"
+    },
+    {
+      "manifestField": "images[].fields.TransferSyntaxUID",
+      "dicomTag": "(0002,0010)",
+      "dicomKeyword": "TransferSyntaxUID",
+      "mapping": "Read from Part 10 file meta information, not inferred from filename"
+    },
+    {
+      "manifestField": "images[].fields.AnatomicRegion[i].CodeValue",
+      "dicomTag": "(0008,2218)[i]/(0008,0100)",
+      "dicomKeyword": "AnatomicRegionSequence[i]/CodeValue",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.AnatomicRegion[i].CodingSchemeDesignator",
+      "dicomTag": "(0008,2218)[i]/(0008,0102)",
+      "dicomKeyword": "AnatomicRegionSequence[i]/CodingSchemeDesignator",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.AnatomicRegion[i].CodeMeaning",
+      "dicomTag": "(0008,2218)[i]/(0008,0104)",
+      "dicomKeyword": "AnatomicRegionSequence[i]/CodeMeaning",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.PrimaryAnatomicStructure[i].CodeValue",
+      "dicomTag": "(0008,2228)[i]/(0008,0100)",
+      "dicomKeyword": "PrimaryAnatomicStructureSequence[i]/CodeValue",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.PrimaryAnatomicStructure[i].CodingSchemeDesignator",
+      "dicomTag": "(0008,2228)[i]/(0008,0102)",
+      "dicomKeyword": "PrimaryAnatomicStructureSequence[i]/CodingSchemeDesignator",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.PrimaryAnatomicStructure[i].CodeMeaning",
+      "dicomTag": "(0008,2228)[i]/(0008,0104)",
+      "dicomKeyword": "PrimaryAnatomicStructureSequence[i]/CodeMeaning",
+      "mapping": "Source-coded anatomy only; no tooth/side/orientation inference"
+    },
+    {
+      "manifestField": "images[].fields.ImageType",
+      "dicomTag": "(0008,0008)",
+      "dicomKeyword": "ImageType",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.SamplesPerPixel",
+      "dicomTag": "(0028,0002)",
+      "dicomKeyword": "SamplesPerPixel",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.PlanarConfiguration",
+      "dicomTag": "(0028,0006)",
+      "dicomKeyword": "PlanarConfiguration",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.FrameTime",
+      "dicomTag": "(0018,1063)",
+      "dicomKeyword": "FrameTime",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.PixelSpacing",
+      "dicomTag": "(0028,0030)",
+      "dicomKeyword": "PixelSpacing",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.ImagePositionPatient",
+      "dicomTag": "(0020,0032)",
+      "dicomKeyword": "ImagePositionPatient",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    },
+    {
+      "manifestField": "images[].fields.ImageOrientationPatient",
+      "dicomTag": "(0020,0037)",
+      "dicomKeyword": "ImageOrientationPatient",
+      "mapping": "Selected actual source value; absent omitted; multiple values joined with backslash"
+    }
+  ],
+  "inventoryFields": {
+    "images[].attachment": "Unique flat PDF attachment key, never SOP Instance UID",
+    "images[].sourcePath": "Original relative input path used for recovery",
+    "images[].sopInstanceUID": "Source (0008,0018), null when unavailable",
+    "images[].sha256": "SHA-256 over complete unchanged original file bytes",
+    "images[].size": "Original file length in bytes",
+    "images[].supplied": "True for every inventoried regular input file",
+    "images[].embedded": "True only when original is embedded; verifier checks actual presence",
+    "images[].displayRejected": "True when source is preserved but rejected for preview rendering",
+    "images[].referencePage": "One-based preview or diagnostic PDF page",
+    "images[].sourceFrame": "One-based source frame1 for PDF baseline; viewer may inspect additional frames without changing the baseline",
+    "images[].status": "rendered or unrendered; an unrendered file remains embedded",
+    "images[].reason": "Rendering rejection reason; null for a rendered preview",
+    "references[]": "Explicit Referenced SOP Instance UID occurrences found recursively in readable sequence items; targets resolved against all supplied instance IDs. Statuses include resolved, missing, ambiguous, invalid-frame and class-mismatch. A diagnostic unassessed row at /REFERENCE_SCAN_INCOMPLETE (null UID, no frames or targets) records an incomplete scan after readable metadata; it does not invent a DICOM reference. Unreadable originals are reported separately. No clinical study completeness is inferred.",
+    "duplicateInstanceUIDs": "Instance UIDs present in multiple supplied files; no overwriting or arbitrary choice",
+    "images[].previewSha256": "SHA-256 over generated reference raster RGB8 bytes, row-major top-to-bottom, left-to-right, channel order R,G,B; null for rejected displays",
+    "artifactSha256": "SHA-256 map for package resources/inventory/viewer; manifest.json is separately hashed by manifest.sha256 to avoid self-reference",
+    "metadataXmpVersion": "1 for full-source-metadata XMP extension; all metadataVersion/metadataSha256/metadataJson properties are then required. Older packages omit this marker."
+  },
+  "displayAdjustments": {
+    "windowCenter": "Effective numeric center used to generate preview; source window value0 or explicit auto minimum/maximum result; float input recorded exactly as supplied to dcm4che",
+    "windowWidth": "Effective numeric width used to generate preview; >=1; float input recorded exactly as supplied to dcm4che",
+    "windowMethod": "source-window-0, auto-min-max-v1, or color-direct",
+    "rescaleSlope": "Effective dcm4che float from source RescaleSlope (0028,1053), default 1 only for display if absent; exact source text remains in fields",
+    "rescaleIntercept": "Effective dcm4che float from source RescaleIntercept (0028,1052), default 0 only for display if absent; exact source text remains in fields",
+    "invert": "True for MONOCHROME1; false for MONOCHROME2",
+    "voiLUTFunction": "LINEAR; other functions and LUT sequences rejected",
+    "rotationDegrees": "0; no source orientation rotation inferred",
+    "flipHorizontal": "false; no reflection inferred",
+    "flipVertical": "false; no reflection inferred",
+    "overlayPolicy": "disabled; embedded overlays are not drawn on preview",
+    "pixelAspectRatio": "1:1 unitless display; no calibrated measurement assertion",
+    "renderer": "dcm4che 5.33.1; PDFBox embeds presentation raster",
+    "color": "True for a color/palette reference, false for grayscale",
+    "photometricInterpretation": "Actual effective source photometric interpretation",
+    "sourceFrame": "One-based frame used for the PDF reference",
+    "rescaleSource": "Source location/default used for effective rescale, including enhanced functional groups",
+    "windowSource": "Source location/default used for effective VOI window"
+  },
+  "normalization": "Missing source fields remain absent. Display defaults are recorded separately and are never written into the original DICOM or passed off as source metadata."
+}

@@ -1,0 +1,37 @@
+# Known DICOM viewing limitations
+
+## Interactive viewer
+
+The viewer preserves access to the originals for these objects, which lack
+a dedicated preview:
+
+- Philips private CT transfer syntax
+- Philips HP Live 3D 02
+- Raw Data Storage
+- RT Structure Set Storage
+- Enhanced US Volume Storage
+
+Grayscale presentation states can apply supported windows, crop, orientation
+and annotations. Sampled Presentation LUTs in a presentation state remain
+unsupported. Sampled grayscale VOI LUTs in images are supported.
+
+Surface Segmentation previews need WebGL. Facets with more than three points
+are unsupported. See [supported formats](docs/GUIDE.md#image-support).
+
+## PDF reference images
+
+The converter preserves files using the private GE 3D layout, HTJ2K images,
+Parametric Maps and Surface Segmentation without rendering them as PDF reference
+images. The interactive viewer can display HTJ2K images, supported Parametric Maps
+and supported Surface Segmentation meshes.
+
+## Input errors and recovery
+
+Invalid pixel bit layouts, inconsistent RT Dose frame counts, missing required
+file-meta information and truncated data can prevent display. Check the selected
+file's metadata and any diagnostic PDF page for details.
+
+Choose **Save → Original file**, or use the download button next to the entry
+under **Metadata → Other supplied files**. The CLI also supports `extract`.
+See the [format matrix](docs/GUIDE.md#image-support) and
+[recovery instructions](docs/GUIDE.md#save-original-files).

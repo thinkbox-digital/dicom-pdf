@@ -1,0 +1,5 @@
+# Optional browser verification harness; not needed to build or run the Java pilot.
+playwright==1.58.0
+
+# Independent extension attachment checks and synthetic ordinary PDF fixtures.
+pypdf==7.0.0

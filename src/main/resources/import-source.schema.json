@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ZIP import receipt, version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "basis", "sourceName", "sourceBytes", "sourceSha256", "containerEmbedded", "memberRoot", "memberCount"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "kind": {"const": "ZIP_IMPORT"},
+    "basis": {"const": "LOCAL_CONTAINER_EXTRACTION"},
+    "sourceName": {"type": "string", "minLength": 1},
+    "sourceBytes": {"type": "integer", "minimum": 0},
+    "sourceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "containerEmbedded": {"const": false},
+    "memberRoot": {"const": "contents/"},
+    "memberCount": {"type": "integer", "minimum": 1, "maximum": 10000}
+  }
+}

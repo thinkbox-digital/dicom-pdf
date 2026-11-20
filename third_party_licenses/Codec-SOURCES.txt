@@ -1,0 +1,21 @@
+Codec source provenance for the locally bundled pure-JavaScript decoders.
+The viewer bundles the JavaScript codec builds for offline image decoding.
+
+@cornerstonejs/codec-openjpeg 1.3.6
+Wrapper/build source: https://github.com/cornerstonejs/codecs/tree/5c48f12a598db126de66c07779ac764ee1a3bc42/packages/openjpeg
+Upstream implementation: https://github.com/cornerstonejs/openjpeg/tree/6c4a29b00211eb0430fa0e5e890f1ce5c80f409f
+Upstream license: https://raw.githubusercontent.com/cornerstonejs/openjpeg/6c4a29b00211eb0430fa0e5e890f1ce5c80f409f/LICENSE
+Wrapper license: MIT (Cornerstone-Codecs-MIT.txt); upstream: BSD-2-Clause
+
+@cornerstonejs/codec-charls 1.2.7
+Wrapper/build source: https://github.com/cornerstonejs/codecs/tree/d546620bc7814e836a0587e878b17e95146c76d0/packages/charls
+Upstream implementation: https://github.com/cornerstonejs/charls/tree/9930a2a2fa75f516c4a08708180c9907fa501a97
+Upstream license: https://raw.githubusercontent.com/cornerstonejs/charls/9930a2a2fa75f516c4a08708180c9907fa501a97/LICENSE.md
+Wrapper license: MIT (Cornerstone-Codecs-MIT.txt); upstream: BSD-3-Clause
+
+@cornerstonejs/codec-libjpeg-turbo-12bit 0.4.7
+Wrapper/build source: https://github.com/cornerstonejs/codecs/tree/841110c6b1ac9ac64aaf3be4f1d344ee2433160b/packages/libjpeg-turbo-12bit
+Upstream implementation: https://github.com/cornerstonejs/libjpeg-turbo/tree/c85e6b905bf237038faa936dab160ebfc5da0344
+Wrapper license: MIT (Cornerstone-Codecs-MIT.txt).
+Upstream licenses: libjpeg-turbo-LICENSE.md and libjpeg-turbo-README.ijg.
+This software is based in part on the work of the Independent JPEG Group.

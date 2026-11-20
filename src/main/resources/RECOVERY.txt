@@ -1,0 +1,70 @@
+DICOM image preservation profile 0.3.0 - recovery without the web viewer
+
+1. Preserve this PDF unchanged. Its DICOM attachments are the supplied source
+   files, not regenerated images. The PDF preview is a display derivative.
+2. With the independent Java 21 command-line JAR, set DICOM_PDF_JAR to the
+   full path of your installed versioned JAR. Replace the example path below
+   with its actual filename (POSIX shell commands):
+     DICOM_PDF_JAR='/absolute/path/to/your-installed-versioned.jar'
+     java -jar "$DICOM_PDF_JAR" inspect --input package.pdf
+     java -jar "$DICOM_PDF_JAR" extract --input package.pdf --output recovery
+   Choose a NEW recovery directory that does not already exist. Originals are
+   recovered with their relative input paths below originals/. Other package
+   attachments are recovered below package/: manifest.json, manifest.sha256,
+   inventory.txt, profile.json, field-mapping.json, dicom-xmp.rng and these
+   instructions. Never overwrite an archival master with a derivative.
+3. Recovery with an ordinary PDF attachment tool needs no JAR or web viewer:
+     mkdir recovery-attachments
+     pdfdetach -saveall -o recovery-attachments package.pdf
+   pdfdetach is provided by Poppler. In a graphical reader, use its attachments
+   panel and Save All. Every original has a unique flat name original-NNNN.dcm.
+   manifest.json maps each flat name to its original relative sourcePath.
+   Use sourcePath only after rejecting absolute paths, '..' and symlinks.
+4. Check SHA-256 over the COMPLETE recovered DICOM file and compare it with
+   the matching manifest images[].sha256. Compare byte size as well. The hash
+   includes file meta information, padding, private attributes and pixel data.
+   It is not a hash of the visible preview. Example tools: sha256sum (Linux),
+   shasum -a 256 (macOS), Get-FileHash -Algorithm SHA256 (PowerShell).
+   manifest.sha256 records the SHA-256 of manifest.json itself; e.g. run
+   sha256sum -c manifest.sha256 in the attachment extraction directory
+   (package/ for CLI recovery).
+   artifactSha256 in the manifest records package-resource checksums separately.
+5. Independently verify the package and optionally compare against input files:
+     java -jar "$DICOM_PDF_JAR" verify --input package.pdf --sources masters
+   Supply --verapdf /path/to/verapdf for actual PDF/A-4f validation. An XMP
+   conformance label alone is NOT proof that veraPDF validation was run.
+   PDF/A conformance, stored-source hashes/external byte comparisons, metadata
+   accuracy, and unresolved references are separate report sections.
+6. Inspect inventory.txt/manifest.json (below package/ for CLI recovery) for
+   display rejections and unresolved
+   references. Unsupported files remain recoverable. Reference status is based
+   only on explicit UIDs in readable metadata; it cannot prove that every
+   image expected by a clinician was originally supplied. Duplicate IDs are
+   never used to overwrite a file or select a target silently.
+
+Preview mapping: referencePage is a one-based PDF page; sourceFrame is a
+one-based DICOM frame (1 for the PDF baseline; other frames can be viewed interactively). displayAdjustments
+records effective window center/width, method, linear rescale, inversion,
+unitless pixel geometry, renderer, and the disabled overlay/rotation/reflection
+policies. previewSha256 hashes the generated RGB8 raster row by row (R,G,B)
+and allows the verifier to compare the PDF preview raster with a source re-render.
+Interactive browser adjustments are temporary and do not alter the
+DICOM originals, manifest, XMP, or recorded PDF preview baseline.
+
+XMP namespace: https://thinkbox.digital/ns/dicom/2.0/
+The dicom schemaVersion/profile/profileVersion/sourceRole properties identify
+this profile. inventoryJson contains the exact manifest JSON including selected
+source fields. dicom-xmp.rng is the attached RELAX NG schema; field-mapping.json
+maps source DICOM tags to manifest/XMP values and explains generated defaults.
+
+Archival masters and deidentified derivatives:
+sourceRole is a caller supplied assertion (archival-master or deidentified-copy),
+not a certification. This program does NOT deidentify a file and never edits
+its bytes or identifiers. Use separate input folders, separate output PDFs,
+and separate NEW recovery folders for masters and approved deidentified copies.
+Do not mix them in a single package. Retain a protected archival master before
+creating a deidentified derivative with a separate approved workflow.
+
+Scope includes 2D frames from CT/MR and other raster Image Storage classes.
+Signing, C2PA, 3D volume rendering and calibrated measurements are deferred. SHA-256 establishes consistency with the manifest,
+not authenticity of an unsigned package. Keep the PDF and its manifest together.

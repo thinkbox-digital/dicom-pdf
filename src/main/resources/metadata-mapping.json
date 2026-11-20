@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "attachment": "dicom-metadata.json",
+  "description": "All readable non-pixel source metadata, replicated as exact dicom:metadataJson XMP text and as dicom-metadata.json. Each original has a source-bound image record, including explicitly partial/unreadable sources.",
+  "source": "dcm4che 5.33.1 DICOM Part 10 file-meta and dataset parsing",
+  "images": {
+    "attachment": "Original PDF attachment name; never used to overwrite duplicate identifiers",
+    "sourcePath": "Original relative input path",
+    "sopInstanceUID": "Actual dataset (0008,0018), null when unavailable",
+    "sha256": "SHA-256 over complete unchanged original bytes",
+    "status": "readable, partial, or unreadable; rendering acceptance is independent",
+    "reason": "Diagnostic when source parsing/metadata traversal is incomplete; null on a complete readable scan",
+    "elements": "Flat sequence-aware list of actual file-meta and dataset elements"
+  },
+  "elements": {
+    "path": "fileMeta/(GGGG,EEEE) or dataset/(GGGG,EEEE); SQ item indexes are one-based, for example dataset/(0008,1115)[1]/(0008,1150)",
+    "tag": "Uppercase hexadecimal (GGGG,EEEE)",
+    "keyword": "dcm4che standard/private dictionary keyword when known; empty when unknown, without inventing a private field name",
+    "vr": "Source explicit VR or dictionary-resolved implicit VR",
+    "value": "Decoded value string, or null for an explicit omission marker. Value multiplicity is retained as backslash-separated values, including empty components. Missing tags are not generated; zero-length actual tags have an empty string.",
+    "encoding": "dicom-value-string, sequence-item-count, base64, base64-fragments-json, or omitted-pixel-data"
+  },
+  "normalization": "DICOM character sets are decoded by dcm4che, including inherited sequence-item character sets. Encoded padding is normalized according to the VR; the original file retains its exact bytes. Numeric VRs use dcm4che's decoded value strings. SQ rows contain an explicitly labeled item count and child rows carry one-based item paths. File/dataset group-length tags are retained when supplied.",
+  "payloadPolicy": "PixelData, FloatPixelData and DoubleFloatPixelData, at any sequence depth, are represented by explicit omitted-pixel-data rows and remain solely in unchanged originals. Every other readable opaque binary/bulk value is retained completely as base64; non-pixel fragments use a JSON array of base64 fragment strings. No 4096-byte truncation or bulk-value omission applies to this extension. If complete retention exceeds bounds or cannot materialize a non-pixel bulk value, creation fails explicitly.",
+  "limits": "Depth64,200000 elements per original,64MiB total UTF-8 inventory,128MiB serialized XMP packet. Limits abort creation rather than publishing truncated metadata. Structural/read errors remain explicit partial/unreadable records; those records make no completeness claim.",
+  "integrity": "manifest.metadataXmpVersion=1 requires dicom:metadataVersion=1, metadataSha256 and metadataJson. Exact XMP metadataJson UTF-8 bytes equal dicom-metadata.json and its artifactSha256; every image is bound by attachment/sourcePath/SOP instance/hash. verify independently reparses originals and compares all metadata. Older packages without the marker retain their original bounded-omission semantics and remain verifiable.",
+  "metadataXmpVersion": 1,
+  "xmpNamespace": "https://thinkbox.digital/ns/dicom/2.0/",
+  "xmpProperty": "metadataJson",
+  "xmpChecksumProperty": "metadataSha256"
+}

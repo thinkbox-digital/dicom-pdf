@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DICOM image pilot XMP schema, version 2.
+     The inventoryJson Text property contains manifest.json, including selected
+     source study/image fields and page/attachment/instance/hash mappings.
+     Full source metadata is additionally stored in metadataJson when declared by
+     manifest.metadataXmpVersion=1; the three additive properties travel together.
+     Missing fields are omitted, not inferred. JSON syntax and inventory
+     semantics are checked by the creator and independent verification scripts.
+     Other XMP namespaces are outside the scope of this extension schema.
+     This grammar validates the complete RDF packet serialized by the pilot.
+-->
+<grammar xmlns="http://relaxng.org/ns/structure/1.0"
+         xmlns:x="adobe:ns:meta/"
+         xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+         xmlns:dicom="https://thinkbox.digital/ns/dicom/2.0/">
+  <start>
+    <element name="x:xmpmeta">
+      <zeroOrMore><attribute><anyName/><text/></attribute></zeroOrMore>
+      <element name="rdf:RDF">
+        <zeroOrMore>
+          <element name="rdf:Description">
+            <zeroOrMore><attribute><anyName/><text/></attribute></zeroOrMore>
+            <choice>
+              <interleave>
+                <element name="dicom:schemaVersion"><value>2</value></element>
+                <element name="dicom:profile"><value>dicom-images</value></element>
+                <element name="dicom:profileVersion"><value>0.4.0</value></element>
+                <element name="dicom:sourceRole"><choice><value>archival-master</value><value>deidentified-copy</value></choice></element>
+                <element name="dicom:inventoryJson"><text/></element>
+                <optional><interleave>
+                  <element name="dicom:metadataVersion"><value>1</value></element>
+                  <element name="dicom:metadataSha256"><text/></element>
+                  <element name="dicom:metadataJson"><text/></element>
+                </interleave></optional>
+              </interleave>
+              <zeroOrMore><ref name="foreign-property"/></zeroOrMore>
+            </choice>
+          </element>
+        </zeroOrMore>
+      </element>
+    </element>
+  </start>
+  <define name="foreign-property">
+    <element>
+      <anyName><except><nsName ns="https://thinkbox.digital/ns/dicom/2.0/"/></except></anyName>
+      <zeroOrMore><attribute><anyName/><text/></attribute></zeroOrMore>
+      <mixed><zeroOrMore><ref name="foreign-property"/></zeroOrMore></mixed>
+    </element>
+  </define>
+</grammar>

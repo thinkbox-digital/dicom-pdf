@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Original DICOM PDF Viewer document/image mark. Apache-2.0. -->
+  <rect width="128" height="128" rx="25" fill="#245b9b"/>
+  <path d="M34 18h43l19 19v73H34z" fill="#fff"/>
+  <path d="M77 18v19h19" fill="#b8d3ee"/>
+  <rect x="43" y="48" width="44" height="37" rx="5" fill="#245b9b"/>
+  <path d="m48 76 10-12 9 8 9-17 6 21" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M45 95h40" stroke="#a9c4e0" stroke-width="5" stroke-linecap="round"/>
+</svg>

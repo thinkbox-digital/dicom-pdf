@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "attachment": "dicom-metadata.json",
+  "description": "Full decoded source metadata, separate from the selected fields and display defaults in manifest.json/XMP. Every original file has an image inventory entry, including unreadable non-DICOM files.",
+  "source": "dcm4che 5.33.1 DICOM Part 10 file-meta and dataset parsing",
+  "images": {
+    "attachment": "Original PDF attachment name; never used to overwrite duplicate identifiers",
+    "sourcePath": "Original relative input path",
+    "sopInstanceUID": "Actual dataset (0008,0018), null when unavailable",
+    "sha256": "SHA-256 over complete unchanged original bytes",
+    "status": "readable, partial, or unreadable; rendering acceptance is independent",
+    "reason": "Diagnostic when source parsing/metadata traversal is incomplete; null on a complete readable scan",
+    "elements": "Flat sequence-aware list of actual file-meta and dataset elements"
+  },
+  "elements": {
+    "path": "fileMeta/(GGGG,EEEE) or dataset/(GGGG,EEEE); SQ item indexes are one-based, for example dataset/(0008,1115)[1]/(0008,1150)",
+    "tag": "Uppercase hexadecimal (GGGG,EEEE)",
+    "keyword": "dcm4che standard/private dictionary keyword when known; empty when unknown, without inventing a private field name",
+    "vr": "Source explicit VR or dictionary-resolved implicit VR",
+    "value": "Decoded value string, or null for an explicit omission marker. Value multiplicity is retained as backslash-separated values, including empty components. Missing tags are not generated; zero-length actual tags have an empty string.",
+    "encoding": "dicom-value-string, sequence-item-count, base64, omitted-pixel-data, omitted-binary-data, or omitted-bulk-data"
+  },
+  "normalization": "DICOM character sets are decoded by dcm4che, including inherited sequence-item character sets. Encoded padding is normalized according to the VR; the original file retains its exact bytes. Numeric VRs use dcm4che's decoded value strings. SQ rows contain an explicitly labeled item count and child rows carry one-based item paths. File/dataset group-length tags are retained when supplied.",
+  "payloadPolicy": "PixelData, FloatPixelData and DoubleFloatPixelData are always represented by omitted-pixel-data rows; pixel/frame bytes are not metadata CSV values. Other bulk payloads are omitted explicitly. Opaque binary metadata OB/OW/OF/OD/OL/OV/UN up to 4096 bytes is base64; larger values are omitted-binary-data. Source bytes remain recoverable unchanged.",
+  "limits": "Sequence depth 64 and 200000 elements per file; exceeding either reports partial with a reason. Serialized sidecar must fit the 64 MiB pilot attachment limit or creation fails explicitly.",
+  "integrity": "The sidecar and this mapping are hashed in manifest.artifactSha256. verify reparses all original bytes and compares the sidecar whenever present. Older profile 0.3.0 packages without this additive artifact remain verifiable."
+}

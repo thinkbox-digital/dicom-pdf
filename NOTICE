@@ -1,0 +1,16 @@
+DICOM PDF pilot
+Copyright 2026 the DICOM PDF pilot contributors.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+The adjacent EA-PDF project was consulted read-only for PDFBox/XMPBox versions
+and PDF preservation patterns (associated files, original-byte fingerprints,
+PDF/A-4f XMP identification and output intent). Desktop form, certificate-selection
+and password-dialog patterns also follow EA-PDF's Apache-2.0-licensed EapdfGui.
+No EA-PDF runtime or email-conversion code is bundled. This pilot is independently
+implemented and independently buildable; no EA-PDF profile is claimed.
+
+This distribution includes software developed by the Apache Software Foundation
+(https://www.apache.org/). Third-party software and font license terms are
+retained in THIRD_PARTY_NOTICES.md, third_party_licenses/, upstream META-INF
+notices, and the attached offline viewer's bundled notices.

@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:dicom-pdf:dicom-images:0.3.0:manifest",
+  "title": "DICOM images profile 0.3.0 manifest schema 2",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "profile",
+    "profileVersion",
+    "creator",
+    "sourceRole",
+    "images",
+    "references",
+    "duplicateInstanceUIDs",
+    "artifactSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "profile": {
+      "const": "dicom-images"
+    },
+    "profileVersion": {
+      "const": "0.3.0"
+    },
+    "creator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceRole": {
+      "enum": [
+        "archival-master",
+        "deidentified-copy"
+      ]
+    },
+    "metadataXmpVersion": {
+      "const": 1
+    },
+    "images": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reference"
+      }
+    },
+    "duplicateInstanceUIDs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 2,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "#/$defs/attachment"
+        }
+      }
+    },
+    "artifactSha256": {
+      "type": "object",
+      "required": [
+        "inventory.txt",
+        "profile.json",
+        "field-mapping.json",
+        "dicom-xmp.rng",
+        "RECOVERY.txt"
+      ],
+      "propertyNames": {
+        "$ref": "#/$defs/attachment"
+      },
+      "properties": {
+        "manifest.json": false,
+        "manifest.sha256": false
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/hash"
+      }
+    },
+    "security": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "protection",
+        "canonicalization",
+        "manifestSignature",
+        "provenance",
+        "issuerCertificateSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "protection": {
+          "enum": [
+            "CMS_AND_PDF",
+            "CMS_AND_PDF_TIMESTAMPED",
+            "PADES_B_LTA"
+          ]
+        },
+        "canonicalization": {
+          "const": "RFC8785"
+        },
+        "manifestSignature": {
+          "const": "manifest.p7s"
+        },
+        "provenance": {
+          "const": "provenance.json"
+        },
+        "issuerCertificateSha256": {
+          "$ref": "#/$defs/hash"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "metadataXmpVersion"
+        ]
+      },
+      "then": {
+        "properties": {
+          "artifactSha256": {
+            "required": [
+              "dicom-metadata.json",
+              "metadata-mapping.json"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "security"
+        ]
+      },
+      "then": {
+        "properties": {
+          "artifactSha256": {
+            "required": [
+              "provenance.json"
+            ],
+            "properties": {
+              "manifest.p7s": false
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "attachment": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/\\\\:\u0000-\u001f\u007f]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\\\:\u0000-\u001f\u007f]+$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^/|/$|//"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(^|/)[.][.]?(/|$)"
+          }
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "attachment",
+        "sourcePath",
+        "sopInstanceUID",
+        "sha256",
+        "size",
+        "referencePage",
+        "status",
+        "reason",
+        "fields",
+        "supplied",
+        "embedded",
+        "displayRejected",
+        "sourceFrame",
+        "displayAdjustments",
+        "previewSha256"
+      ],
+      "properties": {
+        "attachment": {
+          "$ref": "#/$defs/attachment"
+        },
+        "sourcePath": {
+          "$ref": "#/$defs/path"
+        },
+        "sopInstanceUID": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "referencePage": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "enum": [
+            "rendered",
+            "unrendered"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "supplied": {
+          "const": true
+        },
+        "embedded": {
+          "const": true
+        },
+        "displayRejected": {
+          "type": "boolean"
+        },
+        "sourceFrame": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "displayAdjustments": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "previewSha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "rendered"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "displayRejected": {
+                "const": false
+              },
+              "sourceFrame": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "previewSha256": {
+                "$ref": "#/$defs/hash"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "displayRejected": {
+                "const": true
+              },
+              "sourceFrame": {
+                "type": "null"
+              },
+              "previewSha256": {
+                "type": "null"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "sourceAttachment",
+        "sequencePath",
+        "sopClassUID",
+        "sopInstanceUID",
+        "frames",
+        "status",
+        "resolvedAttachments"
+      ],
+      "properties": {
+        "sourceAttachment": {
+          "$ref": "#/$defs/attachment"
+        },
+        "sequencePath": {
+          "type": "string"
+        },
+        "sopClassUID": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "sopInstanceUID": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "frames": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "missing",
+            "ambiguous",
+            "class-mismatch",
+            "invalid-frame",
+            "unassessed"
+          ]
+        },
+        "resolvedAttachments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        }
+      }
+    }
+  }
+}

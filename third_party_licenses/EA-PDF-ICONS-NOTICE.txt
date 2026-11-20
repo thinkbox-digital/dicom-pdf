@@ -1,0 +1,12 @@
+EA-PDF file-action icon geometry
+Copyright 2026 ThinkBox Digital
+
+The View (eye), Download (arrow/tray), export-header Download (arrow/tray), and
+pane-chevron SVG path geometry in viewer/file-icons.mjs and
+viewer/extension/viewer.html is adapted from the Apache-2.0 application source
+browser-viewer/src/viewer-icons.ts in the adjacent EA-PDF project.
+The icon-construction helper and viewer layout are independently implemented.
+
+Licensed under the Apache License, Version 2.0. The full license is included in
+Apache-2.0.txt and the project's LICENSE file. No EA-PDF branding assets or
+third-party icon collection are included by this adaptation.

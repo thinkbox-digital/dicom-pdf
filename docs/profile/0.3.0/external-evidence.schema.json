@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "External DICOM PDF evidence chain version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "purpose",
+    "entries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "purpose": {
+      "const": "DICOM_PDF_EXTERNAL_EVIDENCE"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "binding",
+          "cms"
+        ],
+        "properties": {
+          "binding": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "purpose",
+              "pdfSha256",
+              "pdfSize",
+              "previousEntrySha256",
+              "issuerCertificateSha256",
+              "observedAt",
+              "crls"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "const": 1
+              },
+              "purpose": {
+                "const": "DICOM_PDF_EXTERNAL_EVIDENCE"
+              },
+              "pdfSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "pdfSize": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 402653184
+              },
+              "previousEntrySha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "issuerCertificateSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "crls": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+                  "maxLength": 22369624
+                }
+              }
+            }
+          },
+          "cms": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+            "maxLength": 1398104
+          }
+        }
+      }
+    }
+  }
+}

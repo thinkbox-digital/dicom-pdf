@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "profile": "dicom-2d-intraoral",
+  "profileVersion": "0.2.0",
+  "packageFormat": "PDF/A-4f (ISO 19005-4), PDF 2.0",
+  "scope": "2D single-frame grayscale intraoral X-ray DICOM For Presentation only",
+  "supportedSOPClassUID": "1.2.840.10008.5.1.4.1.1.1.3",
+  "supportedTransferSyntaxUIDs": [
+    "1.2.840.10008.1.2",
+    "1.2.840.10008.1.2.1",
+    "1.2.840.10008.1.2.2"
+  ],
+  "pixelEncodings": [
+    "unsigned 8-bit",
+    "unsigned 16-bit",
+    "signed 16-bit"
+  ],
+  "photometricInterpretations": [
+    "MONOCHROME1",
+    "MONOCHROME2"
+  ],
+  "display": "Right-aligned stored bits, linear rescale and LINEAR VOI windowing, no LUT sequences or overlays; recorded source-frame/window/inversion, no inferred rotation or reflection",
+  "preservation": "Every supplied regular file is embedded unchanged, including empty, corrupt and unsupported files; rendering rejection is separate from source preservation",
+  "referenceCoverage": "Only explicit Referenced SOP Instance UID occurrences in readable DICOM metadata establish known references. A clean reference report does not prove clinical study completeness. Duplicate target IDs are ambiguous; missing target files, invalid frames and class mismatches remain unresolved. An unassessed diagnostic reference row at /REFERENCE_SCAN_INCOMPLETE with null UID records a scan failure after successful metadata parsing; it is not an invented DICOM reference. Unreadable originals are reported as unknown coverage separately.",
+  "sourceRoles": [
+    "archival-master",
+    "deidentified-copy"
+  ],
+  "sourceRoleSemantics": "Caller supplied label, not an automatic deidentification claim. Create separate packages and output directories for archival masters and approved deidentified derivatives; original bytes are never edited.",
+  "xmpNamespace": "https://thinkbox.digital/ns/dicom/2.0/",
+  "schemaAttachment": "dicom-xmp.rng",
+  "fieldMappingAttachment": "field-mapping.json",
+  "manifestAttachment": "manifest.json",
+  "recoveryInstructionsAttachment": "RECOVERY.txt",
+  "integrity": "SHA-256 detects disagreement with the manifest; without signing it does not establish authenticity. Verify PDF/A, stored-source hashes, external-source byte matches, metadata accuracy and unresolved references as distinct results.",
+  "deferred": [
+    "signing",
+    "C2PA",
+    "CT",
+    "MR",
+    "3D imaging",
+    "calibrated measurements"
+  ],
+  "manifestChecksumAttachment": "manifest.sha256",
+  "readableInventoryAttachment": "inventory.txt"
+}

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="application-version" content="__VIEWER_VERSION__">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DICOM PDF Viewer</title>
+  <link rel="icon" type="image/svg+xml" href="icons/dicom-pdf.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+  <link rel="stylesheet" href="viewer.css">
+  <script type="module" src="viewer.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="icons/dicom-pdf.svg" alt="" width="31" height="31"></span><h1>DICOM <span>PDF Viewer</span></h1></div>
+    <button id="open-pdf" type="button" class="open-file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V5h6l2 3h10l-3 11H3V7Zm0 3h17"/></svg>Open PDF…</button>
+    <input id="pdf-file" type="file" accept=".pdf,application/pdf" hidden aria-label="Choose a DICOM PDF">
+    <button id="document-name" class="document-name" type="button" disabled aria-haspopup="dialog" aria-controls="archive-integrity-dialog" title="">No PDF open</button>
+    <div class="header-actions global-actions">
+      <details id="save-menu" class="file-menu save-menu">
+        <summary>Save<svg class="open-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+        <div class="menu-options save-options" role="group" aria-label="Save files and image copies">
+          <button id="download-original" type="button" disabled title="Save the selected original file unchanged">Original file</button>
+          <button id="export-originals" type="button" disabled title="Choose files to save as an originals ZIP" aria-haspopup="dialog" aria-controls="originals-export-dialog">Originals ZIP…</button>
+          <button id="save-view" type="button" disabled title="Save the displayed image with its current adjustments as a PNG copy">Image copy (PNG)</button>
+        </div>
+      </details>
+      <button id="export-csv" type="button" class="secondary" disabled title="Export DICOM metadata as CSV" aria-haspopup="dialog" aria-controls="metadata-export-dialog"><svg class="tree-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Export metadata…</span></button>
+      <button id="native-pdf" type="button" class="quiet" hidden>Open in Chrome</button>
+    </div>
+  </header>
+  <div id="workspace" class="workspace">
+    <aside id="navigation-panel" class="source-panel" aria-label="Study data">
+      <div class="panel-heading navigation-heading"><h2>Data <span id="image-count" class="count-badge">0</span></h2><button id="toggle-navigation" type="button" class="quiet pane-toggle" title="Hide data pane" aria-label="Hide data pane" aria-expanded="true" aria-controls="navigation-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button></div>
+      <nav id="study-navigation" class="study-navigation" aria-label="Exam and series navigation" hidden></nav>
+      <label class="originals-label" for="image-list">Images and reports</label>
+      <select id="image-list" size="16" aria-label="Images and reports"></select>
+    </aside>
+    <main class="reader-panel" aria-label="Image and PDF reader">
+      <div class="reader-heading">
+        <button id="show-navigation" type="button" class="quiet pane-toggle" hidden title="Show data pane" aria-label="Show data pane" aria-expanded="false" aria-controls="navigation-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg><span class="sr-only">Show data</span></button>
+        <button id="show-details" type="button" class="quiet pane-toggle" hidden title="Show metadata pane" aria-label="Show metadata pane" aria-expanded="false" aria-controls="details-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg><span class="sr-only">Show metadata</span></button>
+      </div>
+      <div class="reader-toolbar">
+        <div class="view-tabs" role="tablist" aria-label="Viewing mode">
+          <button id="show-image" type="button" role="tab" aria-selected="true" aria-controls="image-view">DICOM image</button>
+          <button id="show-pdf" type="button" role="tab" aria-selected="false" aria-controls="pdf-view">PDF reference</button>
+          <button id="show-attachment" type="button" role="tab" aria-selected="false" aria-controls="attachment-view" hidden>File preview</button>
+        </div>
+        <p id="selected-source" class="selected-source">No image selected</p>
+        <span class="offline-label"><span aria-hidden="true"></span>Offline</span>
+      </div>
+      <section id="image-view" class="image-view" role="tabpanel" aria-labelledby="show-image">
+        <div id="image-comparison-layout" class="image-comparison-layout">
+        <div class="primary-image-pane">
+        <div id="viewport" aria-label="DICOM viewing area" data-loaded-attachment="" tabindex="0">
+          <p id="image-geometry-warning" class="image-geometry-warning" role="status" hidden></p>
+          <div id="image-overlays" class="image-overlays" role="group" aria-label="Image information" hidden>
+            <div id="overlay-top-left" class="overlay-text overlay-top-left"></div>
+            <div id="overlay-bottom-left" class="overlay-text overlay-bottom-left"></div>
+            <div id="overlay-bottom-right" class="overlay-text overlay-bottom-right"></div>
+            <span id="orientation-top" class="orientation-marker orientation-top"></span>
+            <span id="orientation-right" class="orientation-marker orientation-right"></span>
+            <span id="orientation-bottom" class="orientation-marker orientation-bottom"></span>
+            <span id="orientation-left" class="orientation-marker orientation-left"></span>
+          </div>
+          <div class="empty-state"><img class="empty-icon" src="icons/dicom-pdf.svg" alt="" width="64" height="64"><h2>Open a DICOM PDF</h2><p>Drop a converted DICOM PDF here or use Open PDF.</p><p>Files stay on this device.</p></div>
+        </div>
+        <div id="controls" class="image-controls">
+          <label id="frame-control" hidden>Frame <input id="frame-number" type="number" min="1" value="1" aria-label="DICOM frame number"> of <span id="frame-count">1</span></label><span id="cine-controls" class="cine-controls" hidden><button id="cine-play" type="button" aria-pressed="false">Play</button><label>fps <input id="cine-fps" type="number" min="0.01" max="60" step="0.01" value="10" aria-label="Playback frames per second"></label><span id="cine-status" class="cine-status"></span></span>
+          <label id="window-preset-control" hidden>Window <select id="window-preset" aria-label="Source window preset"><option value="initial">Initial display</option></select></label>
+          <label>Brightness <input id="brightness" type="range" min="-100" max="100" value="0"></label>
+          <label>Contrast <input id="contrast" type="range" min="20" max="500" value="100"></label>
+          <span class="toolbar-divider" aria-hidden="true"></span>
+          <div class="image-step-controls" role="group" aria-label="Change image"><button id="previous-image" type="button" title="Previous image or frame" aria-label="Previous image or frame" disabled>Previous</button><label id="stack-position-control" hidden><span id="stack-position-kind">Image</span><input id="stack-position" type="range" min="1" max="1" value="1" step="1" aria-label="Image position"><span id="stack-position-label">1 of 1</span></label><button id="next-image" type="button" title="Next image or frame" aria-label="Next image or frame" disabled>Next</button></div>
+          <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button><button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">+</button></div>
+          <div class="rotation-controls" role="group" aria-label="Rotate image"><button id="rotate-left" type="button" title="Rotate left 90 degrees" aria-label="Rotate left 90 degrees" disabled>↶ 90°</button><button id="rotate-right" type="button" title="Rotate right 90 degrees" aria-label="Rotate right 90 degrees" disabled>↷ 90°</button></div>
+          <button id="invert" type="button" title="Invert image colors" aria-pressed="false" disabled>Invert</button>
+          <button id="fit-view" type="button" title="Fit image to viewing area" disabled>Fit</button>
+          <button id="toggle-overlays" type="button" title="Show or hide image information" aria-pressed="true" aria-controls="image-overlays" disabled>Info</button>
+          <button id="fullscreen" type="button" title="View image fullscreen" aria-label="View image fullscreen" disabled>Fullscreen</button>
+          <button id="compare-current" type="button" title="Keep this original beside another image or study" disabled>Pin for comparison</button>
+          <button id="reset" type="button">Reset</button>
+          <span class="gesture-hint">Scroll: images · Ctrl+scroll: zoom · drag: pan</span>
+        </div>
+        </div>
+        <section id="comparison-pane" class="comparison-pane" aria-label="Pinned original for comparison" hidden>
+          <header class="comparison-heading"><h2>Pinned original</h2><button id="close-comparison" type="button" aria-label="Close pinned comparison">Close</button></header>
+          <p id="comparison-source" class="comparison-source"></p>
+          <p id="comparison-context" class="comparison-context" hidden></p>
+          <p class="comparison-note">Kept separately when another study opens. Independent views; originals are unchanged.</p>
+          <div id="comparison-viewport" class="comparison-viewport" aria-label="Pinned original viewing area" data-loaded-attachment="" tabindex="0">
+            <p id="comparison-geometry-warning" class="image-geometry-warning" role="status" hidden></p>
+          </div>
+          <div id="comparison-controls" class="comparison-controls">
+            <span id="comparison-frame-label" class="comparison-frame-label">Frame 1 of 1</span>
+            <span id="comparison-frame-controls" class="comparison-frame-controls" hidden><button id="comparison-previous" type="button" aria-label="Previous pinned frame" disabled>Previous</button><label>Frame <input id="comparison-frame" type="number" min="1" max="1" value="1" aria-label="Pinned original frame" disabled></label><button id="comparison-next" type="button" aria-label="Next pinned frame" disabled>Next</button></span>
+            <label>Brightness <input id="comparison-brightness" type="range" min="-100" max="100" value="0" disabled></label>
+            <label>Contrast <input id="comparison-contrast" type="range" min="20" max="500" value="100" disabled></label>
+            <button id="comparison-zoom-out" type="button" aria-label="Zoom out pinned image" disabled>−</button><button id="comparison-zoom-in" type="button" aria-label="Zoom in pinned image" disabled>+</button>
+            <button id="comparison-rotate-left" type="button" aria-label="Rotate pinned image left 90 degrees" disabled>↶ 90°</button><button id="comparison-rotate-right" type="button" aria-label="Rotate pinned image right 90 degrees" disabled>↷ 90°</button>
+            <button id="comparison-invert" type="button" aria-pressed="false" disabled>Invert</button><button id="comparison-fit" type="button" disabled>Fit</button><button id="comparison-reset" type="button" disabled>Reset</button>
+            <button id="comparison-save" type="button" disabled>Save pinned original</button>
+          </div>
+          <p id="comparison-status" class="comparison-status" role="status" aria-live="polite"></p>
+        </section>
+        </div>
+      </section>
+      <section id="pdf-view" class="pdf-view" role="tabpanel" aria-labelledby="show-pdf" hidden>
+        <nav class="pdf-toolbar" aria-label="PDF page controls"><button id="previous-page" type="button" aria-label="Previous PDF page" disabled>‹</button><label class="page-label">Page <input id="page-number" type="number" min="1" value="1" aria-label="PDF page number" disabled></label><span id="page-count">of 0</span><button id="next-page" type="button" aria-label="Next PDF page" disabled>›</button><span class="pdf-note">Summary, inventory and presentation references</span></nav>
+        <div class="pdf-surface"><canvas id="pdf-canvas" aria-label="Rendered PDF reference page"></canvas></div>
+      </section>
+      <section id="attachment-view" class="attachment-view" role="tabpanel" aria-labelledby="show-attachment" hidden>
+        <header class="attachment-toolbar"><span id="attachment-title">File preview</span><button id="close-attachment" type="button" aria-label="Close file preview">Close</button></header>
+        <div id="attachment-content" class="attachment-content" tabindex="0"></div>
+      </section>
+    </main>
+    <aside id="details-panel" class="details-panel" aria-label="Metadata, inventories and supporting files">
+      <div class="panel-heading details-heading"><h2><span id="files-heading">Metadata</span></h2><button id="toggle-details" type="button" class="quiet pane-toggle" title="Hide metadata pane" aria-label="Hide metadata pane" aria-expanded="true" aria-controls="details-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button></div>
+      <button id="show-metadata" class="metadata-open" type="button" disabled aria-haspopup="dialog" aria-controls="metadata-section">Selected file metadata…<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7m0-7-11 11M10 3H3v18h18v-7"/></svg></button>
+      <details id="files-section" class="detail-section package-files-section" hidden><summary>Technical files <span id="file-count" class="count-badge">0</span></summary><div id="package-files" class="package-files" aria-label="Generated technical files"><p class="file-empty">Open a package to inspect its technical files.</p></div></details>
+      <details id="other-files-section" class="detail-section support-files-section"><summary>Other supplied files <span id="other-file-count" class="count-badge">0</span></summary><div id="other-supplied-files" class="package-files" aria-label="Other supplied originals"><p class="file-empty">No supporting source files loaded.</p></div></details>
+      <div class="details-bottom">
+      <details id="inventory-section" class="detail-section"><summary>Inventory</summary><div id="inventory-summary" class="inventory-summary"><p>Open a PDF to inspect its supplied files.</p></div><button id="download-manifest" type="button" disabled hidden>Save manifest.json</button>
+      <details id="notices" class="software-notices"><summary>Software notices</summary><pre>__NOTICES__</pre></details></details>
+      <details id="references-section" class="detail-section"><summary>References</summary><p id="reference-help" class="reference-help">Links in source metadata; a missing target is not a missing embedded image.</p><ul id="references-list" class="references-list"><li>No reference inventory loaded.</li></ul></details>
+      </div>
+    </aside>
+  </div>
+  <footer class="app-footer"><span id="status" role="status" aria-live="polite">Open a PDF to view its unchanged DICOM attachments.</span><span class="footer-details"><span id="package-role" class="package-role">DICOM image profile · offline</span><span id="viewer-version" class="viewer-version" title="Running viewer version">Viewer __VIEWER_VERSION__</span></span></footer>
+
+  <dialog id="loading-dialog" class="loading-dialog" aria-labelledby="loading-title" aria-describedby="loading-message">
+    <h2 id="loading-title">Loading…</h2>
+    <progress aria-label="Loading file"></progress>
+    <p id="loading-message" role="status" aria-live="polite">Reading the selected file…</p>
+  </dialog>
+
+  <dialog id="metadata-section" class="metadata-export-dialog selected-metadata-dialog" aria-labelledby="selected-metadata-title">
+    <header class="archive-report-header">
+      <h2 id="selected-metadata-title">Selected file metadata</h2>
+      <button id="close-metadata" class="metadata-close" type="button" aria-label="Close selected file metadata" title="Close selected file metadata" autofocus><span aria-hidden="true">×</span></button>
+    </header>
+    <div class="selected-metadata-content"><dl id="metadata-fields" class="metadata-fields"><dt>Source</dt><dd>No file selected</dd></dl></div>
+  </dialog>
+
+  <dialog id="archive-integrity-dialog" class="metadata-export-dialog" aria-labelledby="archive-integrity-title">
+    <header class="archive-report-header">
+      <div>
+        <h2 id="archive-integrity-title">Archive security report</h2>
+        <p id="archive-security-filename"></p>
+      </div>
+      <div class="archive-report-actions">
+        <button id="save-archive-check" type="button" disabled>Save report</button>
+        <button id="close-archive-check" class="archive-report-close" type="button" aria-label="Close validation report" title="Close validation report" autofocus><span aria-hidden="true">×</span></button>
+      </div>
+    </header>
+    <section id="archive-check-panel" aria-label="Archive security checks" hidden>
+      <div class="security-card">
+        <div class="archive-security-states">
+          <span id="archive-security-state" class="security-result"></span>
+          <span id="archive-signer-trust-state" class="security-result" hidden></span>
+        </div>
+        <p id="archive-check-status" role="status" aria-live="polite"></p>
+      </div>
+      <section id="archive-trust-panel" class="security-card" aria-labelledby="archive-trust-title" hidden>
+        <div class="security-group-heading">
+          <h3 id="archive-trust-title">Trusted certificates</h3>
+          <span id="archive-trust-count"></span>
+        </div>
+        <p class="archive-trust-help">Supply the export signer’s public CA certificate from a file or an approved HTTPS site. The selection stays in this viewer tab.</p>
+        <div class="archive-trust-actions">
+          <button id="archive-trust-choose" class="primary" type="button">Add certificates…</button>
+          <button id="archive-trust-clear" type="button" disabled>Clear selection</button>
+          <input id="archive-trust-files" type="file" accept=".pem,.crt,.cer,.der" multiple hidden>
+        </div>
+        <form id="archive-trust-url-form" class="archive-trust-actions">
+          <label for="archive-trust-url">Signing CA certificate URL</label>
+          <input id="archive-trust-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://" required>
+          <button id="archive-trust-url-load" type="submit">Load certificate</button>
+          <button id="archive-trust-url-access" type="button" hidden>Allow certificate site</button>
+        </form>
+        <label class="archive-trust-online"><input id="archive-trust-online" type="checkbox" checked> Get timestamp CA certificates online</label>
+        <p id="archive-trust-message" role="status" aria-live="polite"></p>
+        <div id="archive-trust-certificates"></div>
+      </section>
+      <section class="security-card" aria-labelledby="archive-files-title">
+        <h3 id="archive-files-title">Archive files</h3>
+        <dl id="archive-check-fields" class="metadata-fields"></dl>
+      </section>
+      <div id="archive-security-groups"></div>
+      <section id="archive-signing-section" aria-labelledby="archive-signing-title">
+        <details class="security-card">
+          <summary id="archive-signing-title">Archive declarations</summary>
+          <dl id="archive-signing-fields" class="metadata-fields"></dl>
+        </details>
+      </section>
+    </section>
+  </dialog>
+  <dialog id="metadata-export-dialog" class="metadata-export-dialog" aria-labelledby="metadata-export-title">
+    <form id="metadata-export-form" method="dialog">
+      <h2 id="metadata-export-title">Export metadata</h2>
+      <p class="export-intro">Choose images and fields for a CSV file, or save the document XMP. Pixel data is omitted.</p>
+      <div class="export-controls">
+        <label>Scope <select id="export-image-scope"><option value="selected">Selected image</option><option value="all">All images</option></select></label>
+        <label>Fields <select id="export-field-scope"><option value="all">All fields</option><option value="selected">Selected fields</option></select></label>
+        <label class="export-layout">CSV layout <select id="export-csv-layout"><option value="columns">One row per file (spreadsheet)</option><option value="rows">Detailed tag rows</option></select></label>
+      </div>
+      <div class="export-fields-selection"><button id="export-fields-all" type="button" disabled>Select all</button><button id="export-fields-none" type="button" disabled>Clear selection</button></div>
+      <p class="export-hint">The spreadsheet layout puts each metadata field in its own column, including selected file metadata.</p>
+      <label class="export-fields-label" for="export-metadata-fields">Metadata fields</label>
+      <select id="export-metadata-fields" multiple size="10" disabled aria-label="Metadata fields to export"></select>
+      <p class="export-hint">For selected fields, use Ctrl or Command to select more than one.</p>
+      <p id="export-csv-status" class="export-csv-status" role="status" aria-live="polite"></p>
+      <div class="export-actions"><button id="export-csv-confirm" type="button" class="primary">Export CSV</button><button id="export-xmp" type="button" disabled>Save document XMP</button><button id="export-csv-cancel" type="button" class="quiet">Close</button></div>
+    </form>
+  </dialog>
+  <dialog id="originals-export-dialog" class="metadata-export-dialog" aria-labelledby="originals-export-title">
+    <form method="dialog">
+      <h2 id="originals-export-title">Save unchanged originals</h2>
+      <p>Recover the supplied files as a ZIP. Each original is checked against its recorded SHA-256 before saving. The ZIP includes recovery instructions and the package manifest.</p>
+      <div class="export-controls"><label>Files <select id="originals-export-scope"><option value="all">All supplied files</option><option value="study">Current exam</option><option value="series">Selected series</option><option value="selected">Selected file</option></select></label></div>
+      <p>Series and selected-file exports are subsets. For a complete handover, choose all supplied files.</p>
+      <p id="originals-export-status" role="status" aria-live="polite"></p>
+      <div class="export-actions"><button id="originals-export-confirm" type="button" class="primary">Save ZIP</button><button id="originals-export-cancel" type="button">Cancel</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
