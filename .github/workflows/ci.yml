@@ -40,11 +40,6 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: viewer/package-lock.json
-      - run: npm ci --prefix viewer
-      - run: npm --prefix viewer test
-      - run: npm --prefix viewer run test:extension
-      - name: Build standalone viewer and unpacked extension
-        run: npm --prefix viewer run build
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
@@ -55,10 +50,8 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: scripts/requirements.txt
-      - run: python -m pip install -r scripts/requirements.txt
-      - run: python -m playwright install --with-deps chromium
-      - name: Check surface segmentation in Chromium
-        run: python scripts/check_surface_segmentation.py
+      - name: Build and check viewer and Chrome extension
+        run: bash .github/scripts/check-viewer.sh
 
   python:
     name: Python tools tests

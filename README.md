@@ -65,9 +65,10 @@ archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
 Every branch push to GitHub triggers a release build that advances both minor
-versions and resets their patch versions to zero. The workflow tests both
-runnable JARs with veraPDF and publishes the JARs, standalone viewer, extension
-ZIP, and SHA-256 checksums as a workflow artifact. The
+versions and resets their patch versions to zero. Before committing the version
+bump, the workflow runs the viewer and Chrome extension CI checks on the updated
+versions and tests both runnable JARs with veraPDF. It publishes the JARs,
+standalone viewer, extension ZIP, and SHA-256 checksums as a workflow artifact. The
 [source build instructions](docs/GUIDE.md#building-from-source) cover local
 rebuilds and the automated version commit.
 

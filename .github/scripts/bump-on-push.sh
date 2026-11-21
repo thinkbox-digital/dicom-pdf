@@ -29,8 +29,7 @@ for attempt in 1 2 3; do
     git switch --detach "$tip"
     application_version=$(python3 scripts/bump_application_version.py)
     application_version=${application_version##* }
-    npm ci --prefix viewer
-    npm --prefix viewer run build
+    bash .github/scripts/check-viewer.sh
     viewer_version=$(node -p "require('./viewer/package.json').version")
     mvn --batch-mode --no-transfer-progress "-Ddicompdf.test.verapdf=${VERAPDF:?}" verify
     python3 scripts/check_desktop_distribution.py --version "$application_version" --verapdf "$VERAPDF"
