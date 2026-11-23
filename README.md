@@ -68,6 +68,8 @@ shows the verification stage. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
+![Desktop archive security report displaying the larger font on a synthetic CT archive](docs/desktop-security-report.png)
+
 Every branch push to GitHub triggers a release build that advances both minor
 versions and resets their patch versions to zero. Before committing the version
 bump, the workflow runs the viewer and Chrome extension CI checks on the updated
