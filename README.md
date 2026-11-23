@@ -28,6 +28,7 @@ Archives preserve the supplied records, with verification of integrity and avail
 **Documentation:**
 
 - [Desktop creator and validator](docs/GUIDE.md#desktop-creator-and-validator)
+- [Standalone Java DICOM viewer](docs/GUIDE.md#desktop-dicom-viewer)
 - [User guide, conversion and recovery](docs/GUIDE.md)
 - [Supported formats](docs/GUIDE.md#image-support) and [known limitations](UNSUPPORTED_FORMATS)
 - [Run the tests](docs/VERIFICATION.md)
@@ -44,12 +45,15 @@ During desktop creation, **Activity** reports file counts, reference-page
 generation, signing, timestamping and validation. The app also displays elapsed
 time and periodic updates while a step has no new output.
 
-To view an existing archive, open [the standalone viewer](src/main/resources/viewer.html)
-in your browser and choose **Open PDF…**. The standalone viewer and Chrome
+To view an existing archive, run `java -jar dist/dicom-pdf-0.46.0-viewer.jar` or open
+[the standalone viewer](src/main/resources/viewer.html) in your browser and choose
+**Open PDF…**. The standalone browser viewer and Chrome
 extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. The current application distribution
-(`0.25.0`) embeds viewer `0.70.0` in new archives.
+(`0.46.0`) embeds viewer `0.70.0` in new archives.
+
+![Java desktop DICOM viewer displaying a synthetic CT image](docs/desktop-viewer.png)
 
 The updated viewer also opens DICOM Surface Segmentation attachments in a
 rotatable **3D surface** tab, including older exports such as `LASegSample.dcm`.
@@ -57,17 +61,17 @@ Open the existing PDF with the updated viewer. See the [supported formats](docs/
 
 Click the PDF filename to open the archive security report. It checks supported
 PDF signatures, RFC 3161 timestamps, C2PA credentials and DICOM PAdES B-LTA
-revisions on this device. The viewer can download approved timestamp CA
-certificates automatically. Select the signer’s CA certificate from a file or
-an approved HTTPS site. Signature checks show the current signature and how
-much of its signed data has been hashed. Changing the CA selection for an open
+revisions on this device. Both viewers can use approved public timestamp CAs and the bundled DigiCert
+timestamp CA. Select the signer’s CA certificate from a
+file or an approved HTTPS site. The extension shows signature-by-signature hashing progress, and the desktop
+shows the verification stage. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
 Every branch push to GitHub triggers a release build that advances both minor
 versions and resets their patch versions to zero. Before committing the version
 bump, the workflow runs the viewer and Chrome extension CI checks on the updated
-versions and tests both runnable JARs with veraPDF. It publishes the JARs,
+versions and tests the three runnable JARs with veraPDF. It publishes the JARs,
 standalone viewer, extension ZIP, and SHA-256 checksums as a workflow artifact. The
 [source build instructions](docs/GUIDE.md#building-from-source) cover local
 rebuilds and the automated version commit.
@@ -206,7 +210,7 @@ For command-line conversion, extract the chosen ZIP into a folder under
 python3 -m zipfile -e \
   target/anonymized-in/exam.zip \
   target/anonymized-series
-java -jar dist/dicom-pdf-0.25.0.jar create \
+java -jar dist/dicom-pdf-0.46.0.jar create \
   --input target/anonymized-series \
   --output out/anonymized-test.pdf \
   --source-role deidentified-copy

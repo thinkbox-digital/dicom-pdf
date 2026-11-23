@@ -1,4 +1,4 @@
-"""Advance the minor version shared by the desktop and command-line JARs."""
+"""Advance the minor version shared by the creator, viewer and command-line JARs."""
 
 import re
 from pathlib import Path
@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 POM = 'app/pom.xml'
 JAVA_VERSION = 'src/main/java/digital/thinkbox/dicompdf/ApplicationVersion.java'
-JAR_NAMES = ('dicom-pdf-{version}.jar', 'dicom-pdf-{version}-desktop.jar')
+JAR_NAMES = ('dicom-pdf-{version}.jar', 'dicom-pdf-{version}-desktop.jar', 'dicom-pdf-{version}-viewer.jar')
 DISTRIBUTION_REFERENCES = {
     'README.md': ('(`{version}`) embeds viewer',),
     'docs/GUIDE.md': ('Desktop version `{version}`',),

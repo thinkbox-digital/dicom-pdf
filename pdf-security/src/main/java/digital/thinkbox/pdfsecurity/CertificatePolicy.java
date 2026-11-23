@@ -6,11 +6,14 @@ import java.util.*;
 import static digital.thinkbox.pdfsecurity.SecurityReport.Status.*;
 
 /** Explicit local trust and revocation evidence. No AIA/OCSP/CRL network fetching. */
-public record CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Instant at,List<byte[]> ocsps,List<X509Certificate> supportingCertificates) {
+public record CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Instant at,List<byte[]> ocsps,List<X509Certificate> supportingCertificates,Set<TrustAnchor> timestampAnchors) {
+    public CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Instant at,List<byte[]> ocsps,List<X509Certificate> supportingCertificates){
+        this(anchors,crls,at,ocsps,supportingCertificates,Set.of());
+    }
     public CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Instant at){this(anchors,crls,at,List.of());}
     public CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Instant at,List<byte[]> ocsps){this(anchors,crls,at,ocsps,List.of());}
     public CertificatePolicy {
-        anchors=Set.copyOf(anchors);crls=List.copyOf(crls);Objects.requireNonNull(at);
+        anchors=Set.copyOf(anchors);timestampAnchors=Set.copyOf(timestampAnchors);crls=List.copyOf(crls);Objects.requireNonNull(at);
         supportingCertificates=List.copyOf(new LinkedHashSet<>(supportingCertificates));
         if(supportingCertificates.size()>256)throw new IllegalArgumentException("Supporting certificate count limit");
         if(ocsps.size()>1024)throw new IllegalArgumentException("OCSP evidence count limit");
@@ -27,7 +30,10 @@ public record CertificatePolicy(Set<TrustAnchor> anchors,List<X509CRL> crls,Inst
     @Override public List<byte[]> ocsps(){return ocsps.stream().map(byte[]::clone).toList();}
     public static CertificatePolicy untrusted(Instant at){return new CertificatePolicy(Set.of(),List.of(),at);}
     /** Retain the selected trust and evidence while changing the verification reference time. */
-    public CertificatePolicy withTime(Instant time){return new CertificatePolicy(anchors,crls,time,ocsps,supportingCertificates);}
+    public CertificatePolicy withTime(Instant time){return new CertificatePolicy(anchors,crls,time,ocsps,supportingCertificates,timestampAnchors);}
+    Set<TrustAnchor> allTimestampAnchors(){
+        var combined=new LinkedHashSet<>(anchors);combined.addAll(timestampAnchors);return combined;
+    }
     public Map<String,SecurityReport.Check> check(X509Certificate leaf,List<X509Certificate> certificates){
         var result=new LinkedHashMap<String,SecurityReport.Check>();
         try{leaf.checkValidity(Date.from(at));result.put("certificateValidity",new SecurityReport.Check(PASS,"CERTIFICATE_VALID_AT_VERIFICATION_TIME"));}

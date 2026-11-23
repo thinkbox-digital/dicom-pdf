@@ -8,11 +8,12 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>dicom-pdf</artifactId>
-  <version>0.25.0</version>
+  <version>0.46.0</version>
   <name>DICOM PDF pilot</name>
   <properties>
     <dcm4che.version>5.33.1</dcm4che.version>
     <opencv.version>4.9.0-dcm</opencv.version>
+    <javafx.version>23.0.2</javafx.version>
     <exec.skip>false</exec.skip>
   </properties>
   <repositories>
@@ -31,6 +32,21 @@
     </repository>
   </repositories>
   <dependencies>
+    <dependency>
+      <groupId>com.github.hypfvieh</groupId>
+      <artifactId>dbus-java-transport-native-unixsocket</artifactId>
+      <version>5.2.2</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-controls</artifactId>
+      <version>${javafx.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.openjfx</groupId>
+      <artifactId>javafx-swing</artifactId>
+      <version>${javafx.version}</version>
+    </dependency>
     <dependency>
       <groupId>digital.thinkbox</groupId>
       <artifactId>pdf-security</artifactId>
@@ -111,6 +127,11 @@
         <directory>${project.basedir}/../src/main/resources</directory>
       </resource>
       <resource>
+        <directory>${project.basedir}/../viewer/certificates</directory>
+        <targetPath>certificates</targetPath>
+        <includes><include>digicert-g4-timestamp.der</include></includes>
+      </resource>
+      <resource>
         <directory>${project.basedir}/../viewer/extension/icons</directory>
         <targetPath>icons</targetPath>
         <includes>
@@ -139,6 +160,51 @@
         <artifactId>maven-dependency-plugin</artifactId>
         <version>3.9.0</version>
         <executions>
+          <execution>
+            <id>bundle-viewer-platforms</id>
+            <phase>prepare-package</phase>
+            <goals><goal>copy</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/META-INF/dicom-pdf/javafx</outputDirectory>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>org.openjfx</groupId>
+                  <artifactId>javafx-graphics</artifactId>
+                  <version>${javafx.version}</version>
+                  <classifier>linux</classifier>
+                  <destFileName>linux.jar</destFileName>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.openjfx</groupId>
+                  <artifactId>javafx-graphics</artifactId>
+                  <version>${javafx.version}</version>
+                  <classifier>linux-aarch64</classifier>
+                  <destFileName>linux-aarch64.jar</destFileName>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.openjfx</groupId>
+                  <artifactId>javafx-graphics</artifactId>
+                  <version>${javafx.version}</version>
+                  <classifier>mac</classifier>
+                  <destFileName>mac.jar</destFileName>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.openjfx</groupId>
+                  <artifactId>javafx-graphics</artifactId>
+                  <version>${javafx.version}</version>
+                  <classifier>mac-aarch64</classifier>
+                  <destFileName>mac-aarch64.jar</destFileName>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>org.openjfx</groupId>
+                  <artifactId>javafx-graphics</artifactId>
+                  <version>${javafx.version}</version>
+                  <classifier>win</classifier>
+                  <destFileName>win.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
           <execution>
             <id>bundle-dicom-decoders</id>
             <phase>process-resources</phase>
@@ -239,6 +305,12 @@
               <goal>shade</goal>
             </goals>
             <configuration>
+              <artifactSet>
+                <excludes>
+                  <exclude>org.openjfx:*</exclude>
+                  <exclude>com.github.hypfvieh:*</exclude>
+                </excludes>
+              </artifactSet>
               <outputFile>${project.build.directory}/distribution/dicom-pdf-${project.version}-desktop.jar</outputFile>
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <filters>
@@ -250,6 +322,10 @@
                     <exclude>META-INF/*.DSA</exclude>
                     <exclude>module-info.class</exclude>
                     <exclude>META-INF/versions/**/module-info.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopViewer*.class</exclude>
+                    <exclude>META-INF/dicom-pdf/javafx/**</exclude>
+                    <exclude>desktop-viewer.css</exclude>
+
                   </excludes>
                 </filter>
               </filters>
@@ -283,12 +359,92 @@
             </configuration>
           </execution>
           <execution>
+            <id>viewer</id>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <artifactSet>
+                <excludes>
+                  <exclude>org.openjfx:javafx-graphics</exclude>
+
+
+                </excludes>
+              </artifactSet>
+              <outputFile>${project.build.directory}/distribution/dicom-pdf-${project.version}-viewer.jar</outputFile>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>module-info.class</exclude>
+                    <exclude>META-INF/versions/**/module-info.class</exclude>
+                  </excludes>
+                </filter>
+                <filter>
+                  <artifact>digital.thinkbox:dicom-pdf</artifact>
+                  <excludes>
+                    <exclude>digital/thinkbox/dicompdf/ArchiveDesktop*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/Main*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopActivity*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopProcess*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopRequest*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopInputs*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopReplacement*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopPassword*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopSigningMain*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopSigningSelection*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopFileDialogs*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/JarPublication*.class</exclude>
+                    <exclude>viewer.html</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer" />
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/LICENSE</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/LICENSE.txt</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/NOTICE</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/NOTICE.txt</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/LICENSE.md</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/NOTICE.md</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                  <resource>META-INF/DEPENDENCIES</resource>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>digital.thinkbox.dicompdf.DesktopViewerLauncher</mainClass>
+                  <manifestEntries><Multi-Release>true</Multi-Release></manifestEntries>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+          <execution>
             <id>command-line</id>
             <phase>package</phase>
             <goals>
               <goal>shade</goal>
             </goals>
             <configuration>
+              <artifactSet>
+                <excludes>
+                  <exclude>org.openjfx:*</exclude>
+                  <exclude>com.github.hypfvieh:*</exclude>
+                </excludes>
+              </artifactSet>
               <outputFile>${project.build.directory}/distribution/dicom-pdf-${project.version}.jar</outputFile>
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <filters>
@@ -306,6 +462,10 @@
                   <artifact>digital.thinkbox:dicom-pdf</artifact>
                   <excludes>
                     <exclude>digital/thinkbox/dicompdf/ArchiveDesktop*.class</exclude>
+                    <exclude>digital/thinkbox/dicompdf/DesktopViewer*.class</exclude>
+                    <exclude>META-INF/dicom-pdf/javafx/**</exclude>
+                    <exclude>desktop-viewer.css</exclude>
+
                     <exclude>digital/thinkbox/dicompdf/DesktopActivity*.class</exclude>
                     <exclude>digital/thinkbox/dicompdf/DesktopProcess*.class</exclude>
                     <exclude>digital/thinkbox/dicompdf/DesktopRequest*.class</exclude>
@@ -363,6 +523,24 @@
             </goals>
             <configuration>
               <target>
+                <mkdir dir="${project.build.directory}/screenshot-input" />
+                <copy file="${project.basedir}/../fixtures/expanded/ct-explicit-le-16.dcm"
+                      todir="${project.build.directory}/screenshot-input" />
+                <delete file="${project.build.directory}/synthetic-ct.pdf" />
+                <java jar="${project.build.directory}/distribution/dicom-pdf-${project.version}.jar"
+                      fork="true" failonerror="true" timeout="60000">
+                  <arg line="create --c2pa off --input" />
+                  <arg file="${project.build.directory}/screenshot-input" />
+                  <arg value="--output" />
+                  <arg file="${project.build.directory}/synthetic-ct.pdf" />
+                  <arg line="--source-role deidentified-copy" />
+                </java>
+                <java classname="digital.thinkbox.dicompdf.DesktopViewerScreenshot"
+                      fork="true" failonerror="true" timeout="45000">
+                  <classpath refid="maven.test.classpath" />
+                  <arg file="${project.build.directory}/synthetic-ct.pdf" />
+                  <arg file="${project.build.directory}/desktop-viewer.png" />
+                </java>
                 <java classname="digital.thinkbox.dicompdf.JarPublication" fork="true" failonerror="true">
                   <classpath>
                     <pathelement location="${project.build.outputDirectory}" />
@@ -371,6 +549,8 @@
                   <arg value="${project.basedir}/../dist" />
                   <arg value="${project.version}" />
                 </java>
+                <copy file="${project.build.directory}/desktop-viewer.png"
+                      tofile="${project.basedir}/../docs/desktop-viewer.png" overwrite="true" />
               </target>
             </configuration>
           </execution>

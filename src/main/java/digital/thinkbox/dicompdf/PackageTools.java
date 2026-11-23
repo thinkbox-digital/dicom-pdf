@@ -61,7 +61,7 @@ public final class PackageTools {
     }
     public record Extraction(int originals, int packageFiles, Path directory) {}
 
-    private static final class Package implements AutoCloseable {
+    static final class Package implements AutoCloseable {
         final PDDocument pdf;
         final Map<String, PDComplexFileSpecification> files = new TreeMap<>();
         final byte[] manifestBytes;
@@ -567,7 +567,7 @@ public final class PackageTools {
     }
 
     /** Compare XML character data, including escaped text and split CDATA, against streamed UTF-8 sidecars. */
-    private static void compareXmp(InputStream input, Map<String,Reader> expected, List<String> problems) throws Exception {
+    static void compareXmp(InputStream input, Map<String,Reader> expected, List<String> problems) throws Exception {
         var factory = XMLInputFactory.newDefaultFactory();
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check independently runnable desktop/CLI distributions; no GUI display required."""
+"""Check the creator, CLI and viewer distributions without a GUI display."""
 import argparse
 import json
 import os
@@ -54,9 +54,41 @@ def check_painted_reference(java, jar, work):
             'blackQuadrantBounds': [left, top, right, bottom], 'spacingRatio': 2}
 
 
+def check_viewer(java, version, work, creator_class):
+    source = Path('dist') / f'dicom-pdf-{version}-viewer.jar'
+    with ZipFile(source) as jar:
+        names = set(jar.namelist())
+        manifest = jar.read('META-INF/MANIFEST.MF').decode('utf-8').replace('\r\n ', '')
+        assert 'Main-Class: digital.thinkbox.dicompdf.DesktopViewerLauncher' in manifest
+        assert creator_class + '.class' not in names
+        assert 'digital/thinkbox/dicompdf/Main.class' not in names
+        assert 'viewer.html' not in names
+        for required in ['digital/thinkbox/dicompdf/DesktopViewer.class', 'desktop-viewer.css',
+                         'javafx/scene/control/Button.class', 'icons/icon-128.png',
+                         'org/freedesktop/dbus/connections/impl/DBusConnectionBuilder.class',
+                         'org/apache/pdfbox/pdmodel/PDDocument.class', 'dicom-codecs/linux-x86-64.so',
+                         'META-INF/dicom-pdf/LICENSE']:
+            assert required in names, required
+        timestamp_root = 'certificates/digicert-g4-timestamp.der'
+        assert jar.read(timestamp_root) == (Path('viewer') / timestamp_root).read_bytes()
+        for platform in ('linux', 'linux-aarch64', 'mac', 'mac-aarch64', 'win'):
+            assert f'META-INF/dicom-pdf/javafx/{platform}.jar' in names
+    isolated = work / 'viewer'
+    isolated.mkdir()
+    jar_path = (isolated / 'application.jar').resolve()
+    shutil.copyfile(source, jar_path)
+    command = [java, '-Djava.awt.headless=true', '-jar', str(jar_path)]
+    help_result = subprocess.run([*command, '--help'], cwd=isolated, capture_output=True, text=True, timeout=30)
+    assert help_result.returncode == 0 and source.name + ' [archive.pdf]' in help_result.stdout, help_result
+    headless = subprocess.run(command, cwd=isolated, capture_output=True, text=True, timeout=30)
+    assert headless.returncode == 1 and 'needs a graphical desktop' in headless.stderr, headless
+    return {'jar': str(source), 'bytes': source.stat().st_size,
+            'standaloneLaunch': True, 'javafxPlatformsBundled': True, 'passed': True}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--version', default='0.25.0')
+    parser.add_argument('--version', default='0.46.0')
     parser.add_argument('--verapdf', default=os.environ.get('VERAPDF'),
                         help='validate PDF/A-4f and verify byte-exact round trip using this executable')
     args = parser.parse_args()
@@ -68,6 +100,7 @@ def main():
     result = {}
     gui = 'digital/thinkbox/dicompdf/ArchiveDesktop'
     with tempfile.TemporaryDirectory(dir=report, prefix='isolated-') as temporary:
+        result['viewer'] = check_viewer(java, args.version, Path(temporary), gui)
         for kind in ['desktop', 'cli']:
             source = Path('dist') / f'dicom-pdf-{args.version}{"-desktop" if kind == "desktop" else ""}.jar'
             with ZipFile(source) as jar:
@@ -80,6 +113,9 @@ def main():
                 expected = 'digital.thinkbox.dicompdf.' + ('ArchiveDesktop' if kind == 'desktop' else 'Main')
                 assert f'Main-Class: {expected}' in manifest
                 assert (gui + '.class' in names) == (kind == 'desktop')
+                viewer = 'digital/thinkbox/dicompdf/DesktopViewer'
+                assert not any(name.startswith(('javafx/', 'com/sun/javafx/', 'META-INF/dicom-pdf/javafx/',
+                                                'org/freedesktop/dbus/', viewer)) for name in names)
                 if kind == 'cli':
                     assert not any(n.startswith(gui) or n.startswith('digital/thinkbox/dicompdf/DesktopProcess') or n.startswith('digital/thinkbox/dicompdf/DesktopRequest') or n.startswith('digital/thinkbox/dicompdf/DesktopInputs') or n.startswith('digital/thinkbox/dicompdf/DesktopReplacement') or n.startswith('digital/thinkbox/dicompdf/DesktopPassword') or n.startswith('digital/thinkbox/dicompdf/DesktopSigningMain') or n.startswith('digital/thinkbox/dicompdf/DesktopSigningSelection') or n.startswith('digital/thinkbox/dicompdf/DesktopFileDialogs') for n in names)
                 for required in ['digital/thinkbox/dicompdf/Main.class',

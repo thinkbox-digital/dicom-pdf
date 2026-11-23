@@ -12,28 +12,41 @@ import org.dcm4che3.data.UID;
 import org.dcm4che3.data.VR;
 import org.dcm4che3.io.DicomInputStream;
 
-/** Scale native or RLE unsigned 32-bit RGB channels across the declared stored range. */
+/** Scale native or RLE unsigned wide RGB channels across the declared stored range. */
 final class Rgb32Reader {
     private static final int CHANNELS = 3;
     private static final int RLE_HEADER_BYTES = 64;
     private final int lowBit;
     private final long maximum;
+    private final int sampleBytes;
 
-    private Rgb32Reader(int stored, int high) {
+    private Rgb32Reader(int stored, int high, int sampleBytes) {
         lowBit = high - stored + 1;
         maximum = (1L << stored) - 1;
+        this.sampleBytes = sampleBytes;
     }
 
     static BufferedImage read(SourceContent source, String syntax, int frame, int frames,
                               int rows, int columns, int planar, int stored, int high) throws IOException {
-        var reader = new Rgb32Reader(stored, high);
+        return readWide(source, syntax, frame, frames, rows, columns, planar, stored, high, 4);
+    }
+
+    static BufferedImage readWide(SourceContent source, String syntax, int frame, int frames,
+                                  int rows, int columns, int planar, int stored, int high, int sampleBytes) throws IOException {
+        var reader = new Rgb32Reader(stored, high, sampleBytes);
         try (var input = new DicomInputStream(source.open())) {
             input.setIncludeBulkData(DicomInputStream.IncludeBulkData.NO);
             input.readDatasetUntilPixelData();
             if (input.tag() != Tag.PixelData) throw new IIOException("Missing 32-bit RGB Pixel Data");
             var image = new BufferedImage(columns, rows, BufferedImage.TYPE_INT_RGB);
             int[] pixels = ((DataBufferInt) image.getRaster().getDataBuffer()).getData();
-            if (UID.RLELossless.equals(syntax)) reader.readRle(input, frame, frames, pixels);
+            if (UID.RLELossless.equals(syntax)) {
+                if (sampleBytes == 4 && input.vr() != VR.OB) throw new IIOException("Expected encapsulated 32-bit RGB RLE Pixel Data");
+                readRle(input, frame, frames, pixels.length, CHANNELS, sampleBytes, (channel, samples) -> {
+                    for (int pixel = 0; pixel < pixels.length; pixel++)
+                        pixels[pixel] |= reader.toByte(samples[pixel]) << (8 * (2 - channel));
+                });
+            }
             else reader.readNative(input, frame, frames, columns, planar, pixels);
             return image;
         }
@@ -41,14 +54,14 @@ final class Rgb32Reader {
 
     private void readNative(DicomInputStream input, int frame, int frames, int columns,
                             int planar, int[] pixels) throws IOException {
-        long frameBytes = (long) pixels.length * CHANNELS * Integer.BYTES;
+        long frameBytes = (long) pixels.length * CHANNELS * sampleBytes;
         if (input.unsignedLength() != frameBytes * frames) {
             throw new IIOException("32-bit RGB Pixel Data length differs from the declared dimensions and frame count");
         }
         input.skipFully(frameBytes * frame);
         boolean bigEndianWords = input.bigEndian() && input.vr() == VR.OW;
         int rowSamples = planar == 0 ? columns * CHANNELS : columns;
-        byte[] row = new byte[rowSamples * Integer.BYTES];
+        byte[] row = new byte[rowSamples * sampleBytes];
         var values = ByteBuffer.wrap(row).order(input.bigEndian() ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN);
         for (int channel = 0; channel < (planar == 0 ? 1 : CHANNELS); channel++) {
             for (int start = 0; start < pixels.length; start += columns) {
@@ -68,31 +81,41 @@ final class Rgb32Reader {
         }
     }
 
-    private static int readSample(ByteBuffer values, boolean bigEndianWords) {
+    private int readSample(ByteBuffer values, boolean bigEndianWords) {
+        if (sampleBytes == 2) return Short.toUnsignedInt(values.getShort());
         if (!bigEndianWords) return values.getInt();
         // OW stores the lower word first, with big-endian bytes inside each word.
         int low = Short.toUnsignedInt(values.getShort());
         return low | Short.toUnsignedInt(values.getShort()) << 16;
     }
 
-    private void readRle(DicomInputStream input, int frame, int frames, int[] pixels) throws IOException {
-        if (input.unsignedLength() != -1 || input.vr() != VR.OB) {
-            throw new IIOException("Expected encapsulated 32-bit RGB RLE Pixel Data");
-        }
+    static void readRle(DicomInputStream input, int frame, int frames, int pixels, int channels, int sampleBytes,
+                        java.util.function.BiConsumer<Integer, int[]> decoded) throws IOException {
+        beginRle(input, frames);
+        for (int i = 0; i < frame; i++) input.skipFully(itemLength(input));
+        readRleItem(input, pixels, channels, sampleBytes, decoded);
+    }
+
+    static void beginRle(DicomInputStream input, int frames) throws IOException {
+        if (input.unsignedLength() != -1 || (input.vr() != VR.OB && input.vr() != VR.OW))
+            throw new IIOException("Expected encapsulated RLE Pixel Data");
         long tableLength = itemLength(input);
         if (tableLength != 0 && tableLength != (long) frames * Integer.BYTES) {
             throw new IIOException("Invalid RLE Basic Offset Table length");
         }
         input.skipFully(tableLength);
-        // DICOM RLE stores exactly one item per frame, including with an empty offset table.
-        for (int i = 0; i < frame; i++) input.skipFully(itemLength(input));
+    }
+
+    // DICOM RLE stores exactly one item per frame, including with an empty offset table.
+    static void readRleItem(DicomInputStream input, int pixels, int channels, int sampleBytes,
+                            java.util.function.BiConsumer<Integer, int[]> decoded) throws IOException {
         long frameLength = itemLength(input);
-        if (frameLength < RLE_HEADER_BYTES) throw new IIOException("Truncated 32-bit RGB RLE frame header");
+        if (frameLength < RLE_HEADER_BYTES) throw new IIOException("Truncated RLE frame header");
         byte[] headerBytes = new byte[RLE_HEADER_BYTES];
         input.readFully(headerBytes);
         var header = ByteBuffer.wrap(headerBytes).order(ByteOrder.LITTLE_ENDIAN);
-        int segments = CHANNELS * Integer.BYTES;
-        if (header.getInt() != segments) throw new IIOException("32-bit RGB RLE requires twelve byte segments");
+        int segments = channels * sampleBytes;
+        if (header.getInt() != segments) throw new IIOException("Unexpected number of RLE segments");
         long[] offsets = new long[segments + 1];
         offsets[segments] = frameLength;
         for (int i = 0; i < segments; i++) offsets[i] = Integer.toUnsignedLong(header.getInt());
@@ -101,17 +124,15 @@ final class Rgb32Reader {
             if (offsets[i] >= offsets[i + 1]) throw new IIOException("Invalid RLE segment offsets");
         }
 
-        int[] channelSamples = new int[pixels.length];
+        int[] channelSamples = new int[pixels];
         byte[] literal = new byte[128];
-        for (int channel = 0; channel < CHANNELS; channel++) {
+        for (int channel = 0; channel < channels; channel++) {
             Arrays.fill(channelSamples, 0);
-            for (int plane = 0; plane < Integer.BYTES; plane++) {
-                int segment = channel * Integer.BYTES + plane;
-                readRleSegment(input, offsets[segment + 1] - offsets[segment], channelSamples, 8 * (3 - plane), literal);
+            for (int plane = 0; plane < sampleBytes; plane++) {
+                int segment = channel * sampleBytes + plane;
+                readRleSegment(input, offsets[segment + 1] - offsets[segment], channelSamples, 8 * (sampleBytes - 1 - plane), literal);
             }
-            for (int i = 0; i < pixels.length; i++) {
-                pixels[i] |= toByte(channelSamples[i]) << (8 * (2 - channel));
-            }
+            decoded.accept(channel, channelSamples);
         }
     }
 

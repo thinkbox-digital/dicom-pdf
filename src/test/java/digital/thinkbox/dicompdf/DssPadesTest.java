@@ -69,6 +69,12 @@ class DssPadesTest {
     @Test void trustSignerBindingAndRevocationAreNotTakenFromTheArchive()throws Exception{
         var f=fixture();
         assertFalse(DssPades.verify(f.archival(),CertificatePolicy.untrusted(f.institution().now()),null).valid());
+        var tsaOnly=new CertificatePolicy(Set.of(),f.policy().crls(),f.institution().now(),
+                List.of(),List.of(),f.policy().anchors());
+        var scoped=DssPades.verify(f.archival(),tsaOnly,null);
+        assertEquals(PASS,scoped.checks().get("timestamp").status(),scoped.toString());
+        assertEquals(UNKNOWN,scoped.checks().get("certificateTrust").status(),scoped.toString());
+        assertFalse(scoped.valid(),scoped.toString());
         var other=SecurityFixtures.institution(temporary.resolve("other"),false);
         assertFalse(DssPades.verify(f.archival(),other.policy(false),null).valid());
         assertEquals(FAIL,DssPades.verify(f.archival(),f.policy(),"00".repeat(32)).checks().get("issuerBinding").status());

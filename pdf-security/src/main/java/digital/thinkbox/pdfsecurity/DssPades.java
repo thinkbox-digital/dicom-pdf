@@ -35,7 +35,7 @@ public final class DssPades {
     private static FileDocument document(Path path){var result=new FileDocument(path.toFile());result.setName("archive.pdf");return result;}
     private static CommonCertificateVerifier verifier(CertificatePolicy policy)throws Exception{
         var result=new CommonCertificateVerifier();var trusted=new CommonTrustedCertificateSource();
-        for(var anchor:policy.anchors()){
+        for(var anchor:policy.allTimestampAnchors()){
             if(anchor.getTrustedCert()==null)throw new IOException("EU DSS requires explicit X.509 trust-anchor certificates");
             trusted.addCertificate(new CertificateToken(anchor.getTrustedCert()));
         }
@@ -108,24 +108,39 @@ public final class DssPades {
         return new CredentialVerification(verify(revision,policy,expectedCertificate,store.encoded(),profile),store.checks());
     }
     private static Result verify(Path pdf,CertificatePolicy policy,String expectedCertificate,byte[] validatedC2pa,C2paProfile profile){
+        return verify(pdf,policy,expectedCertificate,validatedC2pa,profile,null);
+    }
+
+    public static Result verifyForViewer(Path pdf,CertificatePolicy policy,String expectedCertificate,C2paProfile profile,
+                                         java.util.function.Consumer<String> progress){
+        return verify(pdf,policy,expectedCertificate,profile==null?null:C2pa.validatedStore(pdf,profile),profile,progress);
+    }
+
+    private static Result verify(Path pdf,CertificatePolicy policy,String expectedCertificate,byte[] validatedC2pa,C2paProfile profile,
+                                 java.util.function.Consumer<String> progress){
         var checks=new LinkedHashMap<String,SecurityReport.Check>();Instant best=null;boolean lta=false;
         try{
             if(validatedC2pa!=null&&!Arrays.equals(validatedC2pa,C2pa.store(pdf,profile)))throw new IOException("C2PA payload changed during DSS augmentation");
             var effective=retainedPolicy(pdf,policy);
             var validator=new PDFDocumentValidator(document(pdf));validator.setPdfObjFactory(pdfFactory(validatedC2pa,profile));validator.setCertificateVerifier(verifier(effective));validator.setValidationTime(Date.from(policy.at()));
             validator.setTokenExtractionStrategy(TokenExtractionStrategy.EXTRACT_CERTIFICATES_ONLY);
+            if(progress!=null)progress.accept("Checking PDF signatures and timestamp evidence…");
             var reports=validator.validateDocument();var simple=reports.getSimpleReport();var diagnostic=reports.getDiagnosticData();
             if(simple.getSignatureIdList().size()!=1)throw new IOException("Exactly one archive export signature required");
             String id=simple.getFirstSignatureId();var signature=diagnostic.getSignatureById(id);
             boolean crypto=signature.isSignatureIntact()&&signature.isSignatureValid();
             checks.put("cryptographicSignature",new SecurityReport.Check(crypto?PASS:FAIL,"EU_DSS_PDF_CONTENT_DIGEST_AND_SIGNATURE"));
             var signing=signature.getSigningCertificate();
-            if(expectedCertificate!=null&&!expectedCertificate.equals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(signing.getBinaries()))))checks.put("issuerBinding",new SecurityReport.Check(FAIL,"UNEXPECTED_PDF_SIGNER_CERTIFICATE"));
+            if(expectedCertificate!=null){
+                boolean matched=expectedCertificate.equals(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(signing.getBinaries())));
+                if(!matched||progress!=null)checks.put("issuerBinding",new SecurityReport.Check(matched?PASS:FAIL,matched?"PDF_SIGNER_CERTIFICATE_MATCHES_MANIFEST":"UNEXPECTED_PDF_SIGNER_CERTIFICATE"));
+            }
             var indication=simple.getIndication(id);
             var status=indication==Indication.TOTAL_PASSED?PASS:indication==Indication.TOTAL_FAILED?FAIL:UNKNOWN;
             checks.put("padesValidation",new SecurityReport.Check(status,"EU_DSS_"+indication+(simple.getSubIndication(id)==null?"":"_"+simple.getSubIndication(id))));
             lta=simple.getSignatureFormat(id)==SignatureLevel.PAdES_BASELINE_LTA;
             checks.put("padesLevel",new SecurityReport.Check(lta?PASS:UNKNOWN,"EU_DSS_LEVEL_"+simple.getSignatureFormat(id)));
+            if(progress!=null)progress.accept("Inspecting saved PDF revisions…");
             var revision=signature.getPDFRevision();
             boolean changes=revision!=null&&revision.isSignatureByteRangeValid()&&revision.isPdfSignatureDictionaryConsistent()
                 &&signature.getPdfUndefinedChanges().isEmpty()&&signature.getPdfAnnotationChanges().isEmpty()&&signature.getPdfSignatureOrFormFillChanges().isEmpty()
@@ -134,14 +149,23 @@ public final class DssPades {
             checks.put("allowedChanges",new SecurityReport.Check(changes?PASS:FAIL,"EU_DSS_ONLY_SECURE_PDF_EXTENSION_CHANGES_ALLOWED"));
             boolean finalCoverage=latestTimestampCoversFile(pdf);
             checks.put("coverage",new SecurityReport.Check(changes&&finalCoverage?PASS:FAIL,"EU_DSS_REVISIONS_AND_FINAL_DOCUMENT_TIMESTAMP_COVERAGE"));
-            boolean trusted=signature.isTrustedChain();
+            // DSS uses one trust store for the document. Report signer trust using
+            // the operator's anchors when a timestamp-only root is also present.
+            if(progress!=null)progress.accept("Checking offline certificate trust and revocation…");
+            boolean trusted=signature.isTrustedChain()&&policy.timestampAnchors().isEmpty();
             checks.put("certificateTrust",new SecurityReport.Check(trusted?PASS:policy.anchors().isEmpty()?UNKNOWN:FAIL,"EU_DSS_EXPLICIT_OPERATOR_TRUST_CHAIN"));
             if(status==PASS&&simple.getBestSignatureTime(id)!=null)best=simple.getBestSignatureTime(id).toInstant();
-            if(best!=null){
-                var historical=new CertificatePolicy(effective.anchors(),effective.crls(),best,effective.ocsps(),effective.supportingCertificates());
+            if(best!=null||!policy.timestampAnchors().isEmpty()){
+                var historical=best==null?effective:effective.withTime(best);
                 var factory=CertificateFactory.getInstance("X.509");var leaf=(X509Certificate)factory.generateCertificate(new ByteArrayInputStream(signing.getBinaries()));
                 var chain=new ArrayList<X509Certificate>();for(var cert:signature.getCertificateChain())chain.add((X509Certificate)factory.generateCertificate(new ByteArrayInputStream(cert.getBinaries())));
-                checks.putAll(historical.check(leaf,chain));
+                var signerChecks=historical.check(leaf,chain);
+                checks.putAll(signerChecks);
+                var signerTrust=signerChecks.get("certificateTrust").status();
+                if(!policy.timestampAnchors().isEmpty()&&signerTrust!=PASS){
+                    best=null;
+                    if(status==PASS)checks.put("padesValidation",new SecurityReport.Check(signerTrust,"OPERATOR_SIGNER_TRUST_REQUIRED"));
+                }
             }
             boolean timestamps=true;int ordinal=0;
             var timestampReports=new HashMap<String,Indication>();
@@ -150,8 +174,16 @@ public final class DssPades {
                 boolean math=token.isSignatureIntact()&&token.isSignatureValid()&&token.isMessageImprintDataIntact();
                 var conclusion=timestampReports.get(token.getId());
                 boolean valid=math&&token.isTrustedChain()&&conclusion==Indication.PASSED;timestamps&=valid;
-                var tokenStatus=valid?PASS:!math||conclusion==Indication.FAILED||!token.isTrustedChain()&&!policy.anchors().isEmpty()?FAIL:UNKNOWN;
+                var tokenStatus=valid?PASS:!math||conclusion==Indication.FAILED||!token.isTrustedChain()&&!policy.allTimestampAnchors().isEmpty()?FAIL:UNKNOWN;
                 checks.put("timestamp."+(++ordinal),new SecurityReport.Check(tokenStatus,"EU_DSS_"+token.getType()+"_INTEGRITY_AND_TRUST"));
+                if(progress!=null){
+                    var imprint=token.isMessageImprintDataIntact()?PASS:token.isMessageImprintDataFound()?FAIL:UNKNOWN;
+                    checks.put("timestampImprint."+ordinal,new SecurityReport.Check(imprint,"EU_DSS_TIMESTAMP_IMPRINT"));
+                    checks.put("timestampSignature."+ordinal,new SecurityReport.Check(
+                            token.isSignatureIntact()&&token.isSignatureValid()?PASS:FAIL,"EU_DSS_TIMESTAMP_SIGNATURE"));
+                    checks.put("timestampTrust."+ordinal,new SecurityReport.Check(
+                            token.isTrustedChain()?PASS:UNKNOWN,"EU_DSS_TIMESTAMP_CERTIFICATE_PATH"));
+                }
             }
             checks.put("timestamp",new SecurityReport.Check(timestamps&&ordinal>0&&status==PASS?PASS:status==FAIL?FAIL:UNKNOWN,"EU_DSS_SIGNATURE_AND_ARCHIVE_TIMESTAMP_VALIDATION"));
         }catch(Exception failure){checks.put("padesValidation",new SecurityReport.Check(FAIL,"EU_DSS_VALIDATION_FAILED"));checks.putIfAbsent("coverage",new SecurityReport.Check(FAIL,"EU_DSS_COVERAGE_NOT_VERIFIED"));}

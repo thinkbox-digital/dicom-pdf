@@ -220,7 +220,7 @@ final class DicomInput {
         Attributes shared=attrs.getNestedDataset(Tag.SharedFunctionalGroupsSequence);
         return shared==null?null:shared.getNestedDataset(sequence);
     }
-    private static Attributes effectiveAttributes(Attributes attrs,int frameIndex) {
+    static Attributes effectiveAttributes(Attributes attrs,int frameIndex) {
         Attributes effective=new Attributes(attrs);
         Attributes rescale=functionalGroup(attrs,frameIndex,Tag.PixelValueTransformationSequence);
         if (rescale!=null) {

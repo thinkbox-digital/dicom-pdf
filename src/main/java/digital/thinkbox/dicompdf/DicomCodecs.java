@@ -16,6 +16,7 @@ final class DicomCodecs {
             UID.JPEGLossless, UID.JPEGLosslessSV1);
     private static final Set<String> JPEG_LS = Set.of(UID.JPEGLSLossless, UID.JPEGLSNearLossless);
     private static final Set<String> JPEG_2000 = Set.of(UID.JPEG2000Lossless, UID.JPEG2000);
+    static final Set<String> HIGH_THROUGHPUT_JPEG_2000 = Set.of(UID.HTJ2KLossless, UID.HTJ2KLosslessRPCL, UID.HTJ2K);
     private static boolean configured;
     static synchronized void ensureConfigured() {
         if (configured) return;
@@ -34,6 +35,12 @@ final class DicomCodecs {
     }
     private static ImageReaderFactory.ImageReaderParam compressedReader(String format) {
         return new ImageReaderFactory.ImageReaderParam(format, CompressedDicomReader.class.getName(), null, new String[0]);
+    }
+    static void configureViewerJpeg2000() {
+        ensureConfigured();
+        var factory = ImageReaderFactory.getDefault();
+        for (String syntax : HIGH_THROUGHPUT_JPEG_2000)
+            factory.put(syntax, compressedReader(CompressedDicomReader.JPEG_2000));
     }
     static boolean supported(String syntax, boolean expandedFormats) {
         return NATIVE.contains(syntax) || JPEG.contains(syntax) || UID.RLELossless.equals(syntax)

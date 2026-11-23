@@ -16,35 +16,44 @@ import static org.junit.jupiter.api.Assertions.*;
 class JarPublicationTest {
     private static final String CLI = "digital.thinkbox.dicompdf.Main";
     private static final String DESKTOP = "digital.thinkbox.dicompdf.ArchiveDesktop";
+    private static final String VIEWER = "digital.thinkbox.dicompdf.DesktopViewerLauncher";
     private static final String OLD = "1.1.0";
     private static final String NEW = "1.2.0";
     @TempDir Path root;
 
-    @Test void failureOnSecondCandidatePreservesPreviousPair() throws IOException {
+    @Test void failureOnViewerCandidatePreservesPreviousDistribution() throws IOException {
         Path distribution = Files.createDirectory(root.resolve("dist"));
-        createPair(distribution, OLD, "old viewer");
+        createDistribution(distribution, OLD, "old viewer");
         Path staging = Files.createDirectory(root.resolve("staging"));
         jar(staging.resolve(jarName(NEW, true)), DESKTOP, "new viewer");
-        Files.writeString(staging.resolve(jarName(NEW, false)), "invalid JAR");
-        assertThrows(IOException.class, () -> JarPublication.publishPair(staging, distribution, NEW));
-        assertEquals(List.of(jarName(OLD, true), jarName(OLD, false)), contents(distribution));
+        jar(staging.resolve(jarName(NEW, false)), CLI, "new viewer");
+        Files.writeString(staging.resolve(viewerName(NEW)), "invalid JAR");
+        assertThrows(IOException.class, () -> JarPublication.publish(staging, distribution, NEW));
+        assertEquals(distributionNames(OLD), contents(distribution));
     }
 
-    @Test void aCompletePairReplacesOldVersionsAndRefusesVersionReuse() throws IOException {
+    @Test void completeDistributionReplacesOldVersionsAndRefusesVersionReuse() throws IOException {
         Path distribution = Files.createDirectory(root.resolve("dist"));
-        createPair(distribution, OLD, "old viewer");
+        createDistribution(distribution, OLD, "old viewer");
         Path staging = Files.createDirectory(root.resolve("staging"));
-        createPair(staging, NEW, "new viewer");
-        JarPublication.publishPair(staging, distribution, NEW);
-        assertEquals(List.of(jarName(NEW, true), jarName(NEW, false)), contents(distribution));
+        createDistribution(staging, NEW, "new viewer");
+        JarPublication.publish(staging, distribution, NEW);
+        assertEquals(distributionNames(NEW), contents(distribution));
         for (String name : contents(distribution))
             assertEquals(-1, Files.mismatch(staging.resolve(name), distribution.resolve(name)));
-        assertThrows(IOException.class, () -> JarPublication.publishPair(staging, distribution, NEW));
+        assertThrows(IOException.class, () -> JarPublication.publish(staging, distribution, NEW));
     }
 
-    private static void createPair(Path directory, String version, String viewer) throws IOException {
+    private static void createDistribution(Path directory, String version, String viewer) throws IOException {
         jar(directory.resolve(jarName(version, true)), DESKTOP, viewer);
         jar(directory.resolve(jarName(version, false)), CLI, viewer);
+        jar(directory.resolve(viewerName(version)), VIEWER, viewer);
+    }
+
+    private static String viewerName(String version) { return "dicom-pdf-" + version + "-viewer.jar"; }
+
+    private static List<String> distributionNames(String version) {
+        return List.of(jarName(version, true), viewerName(version), jarName(version, false));
     }
 
     private static String jarName(String version, boolean desktop) {
@@ -62,8 +71,16 @@ class JarPublicationTest {
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass);
         try (var output = new JarOutputStream(Files.newOutputStream(destination), manifest)) {
-            for (String entry : List.of(mainClass.replace('.', '/') + ".class", "com/google/gson/JsonParser.class",
-                    "org/apache/pdfbox/pdmodel/PDDocument.class", "viewer.html")) {
+            var entries = new java.util.ArrayList<>(List.of(mainClass.replace('.', '/') + ".class",
+                    "com/google/gson/JsonParser.class", "org/apache/pdfbox/pdmodel/PDDocument.class"));
+            if (mainClass.equals(VIEWER)) {
+                entries.addAll(List.of("digital/thinkbox/dicompdf/DesktopViewer.class", "desktop-viewer.css",
+                        "javafx/scene/control/Button.class", "icons/icon-128.png",
+                                "digital/thinkbox/dicompdf/DesktopViewerReportText.class"));
+                for (String platform : List.of("linux", "linux-aarch64", "mac", "mac-aarch64", "win"))
+                        entries.add("META-INF/dicom-pdf/javafx/" + platform + ".jar");
+            } else entries.add("viewer.html");
+            for (String entry : entries) {
                 output.putNextEntry(new JarEntry(entry));
                 output.write(viewer.getBytes(StandardCharsets.UTF_8));
                 output.closeEntry();

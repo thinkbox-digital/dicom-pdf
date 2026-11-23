@@ -24,7 +24,7 @@ public final class PdfValidationStore {
             var combinedCrls=new ArrayList<>(policy.crls());combinedCrls.addAll(crls);
             var combinedOcsp=new ArrayList<>(policy.ocsps());combinedOcsp.addAll(ocsps);
             var supporting=new ArrayList<>(policy.supportingCertificates());supporting.addAll(certificates);
-            return new CertificatePolicy(policy.anchors(),combinedCrls,policy.at(),deduplicate(combinedOcsp),supporting);
+            return new CertificatePolicy(policy.anchors(),combinedCrls,policy.at(),deduplicate(combinedOcsp),supporting,policy.timestampAnchors());
         }
     }
     private PdfValidationStore(){}

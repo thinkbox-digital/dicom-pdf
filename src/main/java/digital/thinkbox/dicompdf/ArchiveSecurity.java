@@ -184,18 +184,32 @@ public final class ArchiveSecurity {
             throw new IOException("Preservation checks must pass before publication:\n - " + String.join("\n - ", failures));
     }
     public static SecurityReport verify(Path pdf,Path sources,CertificatePolicy policy,String verapdf,Protection required){
+        return verify(pdf, policy, required, () -> PackageTools.verify(pdf, sources, verapdf), null);
+    }
+
+    static SecurityReport verifyViewerEvidence(Path pdf, CertificatePolicy policy, java.util.function.Consumer<String> progress) {
+        return verify(pdf, policy, Protection.CMS_AND_PDF, null, progress);
+    }
+
+    private static SecurityReport verify(Path pdf, CertificatePolicy policy, Protection required,
+                                 java.util.function.Supplier<PackageTools.Verification> preservation,
+                                 java.util.function.Consumer<String> progress) {
         var checks=new LinkedHashMap<String,SecurityReport.Check>();
+        if(preservation!=null){
         checks.put("clinicalCompleteness",new SecurityReport.Check(UNKNOWN,"CLINICAL_COMPLETENESS_NOT_ASSESSED"));
         checks.put("acquisitionProvenance",new SecurityReport.Check(UNKNOWN,"NO_AUTHENTICATED_ACQUISITION_EVIDENCE"));
         checks.put("deliveryProvenance",new SecurityReport.Check(UNKNOWN,"DELIVERY_NOT_OBSERVED"));
+        }
         try{
-            var base=PackageTools.verify(pdf,sources,verapdf);
+            if(preservation!=null){
+            var base=preservation.get();
             checks.putAll(base.c2pa());
             for(var entry:Map.of("originalBytes",base.sourceBytes(),"inventoryReconciliation",base.externalSources(),"metadataAgreement",base.metadataAccuracy(),"pdfa4f",base.pdfa4f()).entrySet())
                 checks.put(entry.getKey(),new SecurityReport.Check("PASS".equals(entry.getValue().status())?PASS:"FAIL".equals(entry.getValue().status())?FAIL:UNKNOWN,"INDEPENDENT_"+entry.getKey().toUpperCase(Locale.ROOT)));
             checks.put("source.dicomInputSubset",new SecurityReport.Check("PASS".equals(base.dicomInputConformance().status())?PASS:"FAIL".equals(base.dicomInputConformance().status())?FAIL:UNKNOWN,"DOCUMENTED_SUBSET_NOT_FULL_IOD_VALIDATION"));
             checks.put("source.dicomStructure",new SecurityReport.Check("PASS".equals(base.dicomStructure().status())?PASS:"FAIL".equals(base.dicomStructure().status())?FAIL:UNKNOWN,"NATIVE_PAYLOAD_AND_SELECTED_LIBRARY_RULES_NOT_FULL_IOD_VALIDATION"));
             checks.put("referenceCoverage",new SecurityReport.Check("PASS".equals(base.unresolvedReferences().status())?PASS:"FAIL".equals(base.unresolvedReferences().status())?FAIL:UNKNOWN,"EXPLICIT_REFERENCES_NOT_CLINICAL_COMPLETENESS"));
+            }
             try(var document=Loader.loadPDF(pdf.toFile(),org.apache.pdfbox.io.IOUtils.createTempFileOnlyStreamCache())){
                 var files=files(document);byte[] manifest=bytes(files.get("manifest.json"));
                 if(!Arrays.equals(manifest,ManifestEncoding.canonicalize(new String(manifest,StandardCharsets.UTF_8))))throw new IOException("Signed manifest is not canonical");
@@ -204,11 +218,13 @@ public final class ArchiveSecurity {
                 if(security==null||security.get("schemaVersion").getAsInt()!=1||!"RFC8785".equals(security.get("canonicalization").getAsString())||!"manifest.p7s".equals(security.get("manifestSignature").getAsString()))throw new IOException("Security declaration missing or unsupported");
                 var declared=Protection.valueOf(security.get("protection").getAsString());
                 String issuer=security.get("issuerCertificateSha256").getAsString();
+                if(preservation!=null){
                 var provenance=JsonParser.parseString(new String(bytes(files.get("provenance.json")),StandardCharsets.UTF_8)).getAsJsonObject();
                 var receipt=provenance.getAsJsonArray("events").get(0).getAsJsonObject();
                 boolean reconciled="INGESTION".equals(receipt.get("event").getAsString())&&receipt.get("fileCount").getAsInt()==value.getAsJsonArray("images").size()
                     &&hash(ManifestEncoding.canonicalize(inputInventory(value).toString())).equals(receipt.get("inputInventorySha256").getAsString());
                 checks.put("capturedInventory",new SecurityReport.Check(reconciled?PASS:FAIL,reconciled?"CAPTURED_SET_MATCHES_SIGNED_MANIFEST":"CAPTURED_SET_RECEIPT_MISMATCH"));
+                }
                 var localCrls=new ArrayList<java.security.cert.X509CRL>(policy.crls());
                 var localOcsps=new ArrayList<byte[]>(policy.ocsps());
                 if(files.containsKey("revocation.json")){
@@ -218,23 +234,25 @@ public final class ArchiveSecurity {
                     for(var encoded:retained.getAsJsonArray("crls"))localCrls.add((java.security.cert.X509CRL)factory.generateCRL(new ByteArrayInputStream(Base64.getDecoder().decode(encoded.getAsString()))));
                     if(retained.has("ocsps"))for(var encoded:retained.getAsJsonArray("ocsps"))localOcsps.add(Base64.getDecoder().decode(encoded.getAsString()));
                 }
-                var effectivePolicy=new CertificatePolicy(policy.anchors(),localCrls,policy.at(),localOcsps,policy.supportingCertificates());
+                var effectivePolicy=new CertificatePolicy(policy.anchors(),localCrls,policy.at(),localOcsps,policy.supportingCertificates(),policy.timestampAnchors());
                 try{
                     var dss=PdfValidationStore.read(document);if(dss!=null)effectivePolicy=dss.augment(effectivePolicy);
                 }catch(Exception invalid){checks.put("pdf.validationStore",new SecurityReport.Check(FAIL,"MALFORMED_OR_UNSUPPORTED_PDF_DSS"));}
                 checks.put("manifestCanonicalization",new SecurityReport.Check(PASS,"RFC8785_CANONICAL_BYTES"));
                 var manifestPolicy=effectivePolicy;
                 if(declared==Protection.PADES_B_LTA||required==Protection.PADES_B_LTA){
-                    var pades=DssPades.verify(pdf,effectivePolicy,issuer,ArchiveC2pa.FORMAT);
+                    var pades=progress==null?DssPades.verify(pdf,effectivePolicy,issuer,ArchiveC2pa.FORMAT)
+                            :DssPades.verifyForViewer(pdf,effectivePolicy,issuer,ArchiveC2pa.FORMAT,progress);
                     for(var entry:pades.checks().entrySet())checks.put("pdf."+entry.getKey(),entry.getValue());
                     checks.put("padesBLta",new SecurityReport.Check(pades.valid()&&pades.lta()?PASS:pades.checks().values().stream().anyMatch(c->c.status()==FAIL)?FAIL:UNKNOWN,"EU_DSS_BASELINE_LTA_AND_ARCHIVE_CHANGE_POLICY"));
                     // Only library-validated historical evidence permits evaluating the
                     // manifest signer at the export's independently established time.
-                    if(pades.valid()&&pades.bestSignatureTime()!=null)manifestPolicy=new CertificatePolicy(effectivePolicy.anchors(),effectivePolicy.crls(),pades.bestSignatureTime(),effectivePolicy.ocsps(),effectivePolicy.supportingCertificates());
+                    if(pades.valid()&&pades.bestSignatureTime()!=null)manifestPolicy=effectivePolicy.withTime(pades.bestSignatureTime());
                 }else{
                     for(var entry:PdfCmsVerification.verify(pdf,effectivePolicy,issuer).entrySet())checks.put("pdf."+entry.getKey(),entry.getValue());
                     checks.put("padesBLta",new SecurityReport.Check(NOT_APPLICABLE,"CMS_AND_PDF_REQUESTED_NO_LTA_CLAIM"));
                 }
+                if(progress!=null)progress.accept("Checking the manifest signature…");
                 for(var entry:CmsVerification.verify(new ByteArrayInputStream(manifest),bytes(files.get("manifest.p7s")),manifestPolicy,issuer).entrySet())checks.put("manifest."+entry.getKey(),entry.getValue());
                 var timestamps=Arrays.asList(checks.get("manifest.timestamp"),checks.get("pdf.timestamp"));
                 var timestampStatus=timestamps.stream().anyMatch(c->c!=null&&c.status()==FAIL)?FAIL:timestamps.stream().allMatch(c->c!=null&&c.status()==PASS)?PASS:UNKNOWN;
@@ -244,6 +262,7 @@ public final class ArchiveSecurity {
                         (declared!=Protection.PADES_B_LTA||checks.get("padesBLta").status()==PASS);
                     checks.put("requestedProtection",new SecurityReport.Check(level&&declared!=Protection.CMS_AND_PDF&&timestampStatus==PASS?PASS:FAIL,"REQUESTED_LEVEL_AND_BOTH_VERIFIED_TIMESTAMPS_REQUIRED"));
                 }
+                if(preservation!=null){
                 boolean sourceSignature=false;
                 for(var image:value.getAsJsonArray("images")){
                     var source=image.getAsJsonObject();
@@ -254,6 +273,7 @@ public final class ArchiveSecurity {
                 }
                 checks.put("dicomSignatures",new SecurityReport.Check(sourceSignature?UNKNOWN:checks.containsKey("sourceSignatureCoverage")?UNKNOWN:NOT_APPLICABLE,
                     sourceSignature?"DICOM_PS3_15_SIGNATURES_PRESERVED_NOT_VERIFIED":"NO_SUPPORTED_AUTHENTICATED_DICOM_SIGNATURE_EVIDENCE"));
+                }
             }
         }catch(Exception failure){checks.put("securityStructure",new SecurityReport.Check(FAIL,"MISSING_INVALID_OR_UNSUPPORTED_SECURITY_EVIDENCE"));}
         boolean authenticated=List.of("manifest.cryptographicSignature","manifest.certificateTrust","manifest.certificateValidity","manifest.keyPolicy","manifest.revocation",

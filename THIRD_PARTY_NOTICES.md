@@ -8,6 +8,12 @@ checkout is required at build or runtime.
 
 ## Java runtime components
 
+- DBus-Java **5.2.2**, core and native Unix socket transport, ships with the
+  desktop viewer to access the Linux file chooser portal. MIT license,
+  `third_party_licenses/DBus-Java-MIT.txt`.
+  Source: <https://github.com/hypfvieh/dbus-java/tree/dbus-java-parent-5.2.2>.
+- The desktop viewer's portal adapter is adapted from the Apache-2.0 EA-PDF
+  Desktop Viewer. Copyright 2026 ThinkBox Digital.
 - COSE-JAVA **1.1.0**: BSD-3-Clause, copyright Jim Schaad;
   `third_party_licenses/COSE-Java-BSD-3-Clause.txt`.
   Source: <https://github.com/cose-wg/COSE-JAVA>.
@@ -24,7 +30,7 @@ checkout is required at build or runtime.
   Exact license: `third_party_licenses/EU-DSS-LGPL-2.1.txt`.
   Source: <https://github.com/esig/dss/tree/6.5>. The modules are unmodified;
   each redistributed DSS module's corresponding Maven source JAR is bundled
-  under `META-INF/dicom-pdf/eu-dss-sources/` in both runnable JARs. Application
+  under `META-INF/dicom-pdf/eu-dss-sources/` in the runnable JARs. Application
   source and `pom.xml` permit rebuilding/relinking against modified DSS modules
   using `mvn package` (the `dss.version` property selects their version).
   Reverse engineering for debugging modifications to these LGPL components

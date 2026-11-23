@@ -27,6 +27,7 @@ final class CompressedDicomReader extends ImageReader {
     static final String JPEG_LS = "dicom-jpeg-ls";
     static final String JPEG_2000 = "dicom-jpeg-2000";
     private static final long MAX_ENCODED_FRAME_BYTES = 64L * 1024 * 1024;
+    static final ThreadLocal<Boolean> VIEWER_JPEG_LS_COMPATIBILITY = new ThreadLocal<>();
     private final boolean jpeg2000;
 
     private CompressedDicomReader(ImageReaderSpi provider, boolean jpeg2000) {
@@ -40,7 +41,7 @@ final class CompressedDicomReader extends ImageReader {
         var descriptor = frameDescriptor(index, input);
         var frame = (SegmentedInputImageStream) input;
         frame.seek(0);
-        checkHeader(frame, descriptor);
+        int precision = checkHeader(frame, descriptor);
         frame.seek(0);
         byte[] bytes = readEncodedFrame(frame);
         int flags = jpeg2000 && descriptor.isSigned() ? Imgcodecs.DICOM_FLAG_SIGNED : Imgcodecs.DICOM_FLAG_UNSIGNED;
@@ -54,7 +55,9 @@ final class CompressedDicomReader extends ImageReader {
                     || decoded.channels() != descriptor.getSamples()) {
                 throw new IIOException("Compressed frame is invalid or differs from DICOM image dimensions or components");
             }
-            return ImageConversion.toBufferedImage(decoded);
+            var image = ImageConversion.toBufferedImage(decoded);
+            if (!jpeg2000 && precision > descriptor.getBitsStored()) checkExtendedPrecisionSamples(image, descriptor, precision);
+            return image;
         } finally {
             decoded.release();
         }
@@ -83,7 +86,7 @@ final class CompressedDicomReader extends ImageReader {
         }
     }
 
-    private void checkHeader(ImageInputStream frame, ImageDescriptor descriptor) throws IOException {
+    private int checkHeader(ImageInputStream frame, ImageDescriptor descriptor) throws IOException {
         if (jpeg2000) {
             if (frame.readInt() != 0xff4fff51) throw new IIOException("Expected a JPEG 2000 Part 1 codestream");
             int headerLength = frame.readUnsignedShort();
@@ -98,7 +101,7 @@ final class CompressedDicomReader extends ImageReader {
                 checkPrecision(descriptor, (frame.readUnsignedByte() & 0x7f) + 1);
                 frame.skipBytes(2);
             }
-            return;
+            return descriptor.getBitsStored();
         }
         if (frame.readUnsignedShort() != 0xffd8) throw new IIOException("Expected a JPEG-LS codestream");
         while (frame.readUnsignedByte() == 0xff) {
@@ -110,12 +113,31 @@ final class CompressedDicomReader extends ImageReader {
                 int precision = frame.readUnsignedByte();
                 int rows = frame.readUnsignedShort(), columns = frame.readUnsignedShort();
                 checkDimensions(descriptor, columns, rows, frame.readUnsignedByte());
-                checkPrecision(descriptor, precision);
-                return;
+                if (!(Boolean.TRUE.equals(VIEWER_JPEG_LS_COMPATIBILITY.get())
+                        && precision >= descriptor.getBitsStored() && precision <= descriptor.getBitsAllocated()))
+                    checkPrecision(descriptor, precision);
+                return precision;
             }
             if (size < 2 || frame.skipBytes(size - 2) != size - 2) break;
         }
         throw new IIOException("Missing or invalid JPEG-LS frame header");
+    }
+
+    private static void checkExtendedPrecisionSamples(BufferedImage image, ImageDescriptor descriptor, int precision)
+            throws IIOException {
+        int mask = (1 << descriptor.getBitsStored()) - 1;
+        int decodedMask = (1 << precision) - 1;
+        int signExtendedMinimum = decodedMask - (1 << (descriptor.getBitsStored() - 1)) + 1;
+        var raster = image.getRaster();
+        for (int y = 0; y < raster.getHeight(); y++) {
+            for (int x = 0; x < raster.getWidth(); x++) {
+                for (int band = 0; band < raster.getNumBands(); band++) {
+                    int sample = raster.getSample(x, y, band) & decodedMask;
+                    if (sample > mask && !(descriptor.isSigned() && sample >= signExtendedMinimum))
+                        throw new IIOException("JPEG-LS samples exceed the DICOM stored bit layout");
+                }
+            }
+        }
     }
 
     private static void checkDimensions(ImageDescriptor descriptor, long width, long height, int components) throws IIOException {

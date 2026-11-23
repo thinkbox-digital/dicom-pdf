@@ -246,9 +246,23 @@ public final class C2pa {
         return verifyStore(path,profile).checks();
     }
 
+    public record ViewerEvidence(Map<String, SecurityReport.Check> checks, List<X509Certificate> chain, boolean localIdentity) {}
+
+    public static ViewerEvidence verifyViewerEvidence(Path path, C2paProfile profile) {
+        var chain = new ArrayList<X509Certificate>();
+        boolean[] local = {false};
+        var store = verifyStore(path, profile, chain, local);
+        return new ViewerEvidence(Map.copyOf(store.checks()), List.copyOf(chain), local[0]);
+    }
+
     record StoreVerification(Map<String, SecurityReport.Check> checks, byte[] encoded) {}
 
     static StoreVerification verifyStore(Path path, C2paProfile profile) {
+        return verifyStore(path, profile, null, null);
+    }
+
+    private static StoreVerification verifyStore(Path path, C2paProfile profile,
+                                                 List<X509Certificate> viewerChain, boolean[] viewerLocalIdentity) {
         var result = new LinkedHashMap<String, SecurityReport.Check>();
         try (var doc = Loader.loadPDF(path.toFile())) {
             requireProfile(profile);
@@ -347,6 +361,21 @@ public final class C2pa {
             result.put("c2pa.binding", check("PASS", "PDF_AND_ARCHIVE_MANIFEST_BOUND"));
             result.put("c2pa.trust", check("UNKNOWN", "SIGNER_REQUIRES_EXTERNAL_C2PA_TRUST_POLICY"));
             result.put("c2pa.timestamp", check("UNKNOWN", "NO_C2PA_TRUSTED_TIMESTAMP"));
+            if (viewerChain != null && certs.size() <= 16) {
+                var chain = new ArrayList<X509Certificate>();
+                chain.add(certificate);
+                for (int i = 1; i < certs.size(); i++) {
+                    try {
+                        chain.add((X509Certificate) factory.generateCertificate(new ByteArrayInputStream(certs.get(i).GetByteString())));
+                    } catch (Exception ignored) {
+                        // An unreadable supporting certificate cannot participate in a trust path.
+                    }
+                }
+                viewerChain.addAll(chain);
+                var identity = archive.get("identity");
+                viewerLocalIdentity[0] = identity != null && identity.getType() == com.upokecenter.cbor.CBORType.TextString
+                        && "LOCAL_EPHEMERAL_UNTRUSTED".equals(identity.AsString());
+            }
             return new StoreVerification(result,encoded);
         } catch (Exception e) {
             result.put("c2pa.validation", check("FAIL", "INVALID_OR_UNSUPPORTED_C2PA: " + e.getMessage()));

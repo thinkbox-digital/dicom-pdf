@@ -39,7 +39,7 @@ final class Rfc3161Verification {
             token.validate(new JcaSimpleSignerInfoVerifierBuilder().setProvider(SigningIdentity.BC).build(certificate));
             var converter=new JcaX509CertificateConverter().setProvider(SigningIdentity.BC);
             var chain=new ArrayList<X509Certificate>();for(Object item:token.getCertificates().getMatches(null))chain.add(converter.getCertificate((X509CertificateHolder)item));
-            var tsaPolicy=new CertificatePolicy(policy.anchors(),policy.crls(),info.getGenTime().toInstant(),policy.ocsps(),policy.supportingCertificates());
+            var tsaPolicy=new CertificatePolicy(policy.allTimestampAnchors(),policy.crls(),info.getGenTime().toInstant(),policy.ocsps(),policy.supportingCertificates());
             var checks=tsaPolicy.check(converter.getCertificate(certificate),chain);
             var status=checks.values().stream().anyMatch(c->c.status()==FAIL)?FAIL:checks.values().stream().anyMatch(c->c.status()==UNKNOWN)?UNKNOWN:PASS;
             result.put("timestamp",new SecurityReport.Check(status,status==PASS?"RFC3161_IMPRINT_SIGNATURE_TRUST_AND_REVOCATION_VERIFIED":"RFC3161_TRUST_OR_REVOCATION_NOT_ESTABLISHED"));

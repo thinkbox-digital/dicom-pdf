@@ -9,7 +9,7 @@ The Maven build has two modules:
 
 The library uses package `digital.thinkbox.pdfsecurity` and is independently
 versioned as `digital.thinkbox:pdf-security:0.1.0`. The application remains
-`digital.thinkbox:dicom-pdf:0.25.0` and consumes the library as a normal dependency.
+`digital.thinkbox:dicom-pdf:0.46.0` and consumes the library as a normal dependency.
 The [reactor parent POM](../pom.xml) is `digital.thinkbox:pdf-tools-parent:1.0.0`.
 
 The example includes two source files.
@@ -50,7 +50,7 @@ standalone application. Sources are generated alongside it. No DICOM libraries,
 application classes, GUI or viewer are part of the library.
 
 Maven writes library artifacts to `target/pdf-security/` and application build
-intermediates to `target/app/`. Release builds write both runnable JARs to
+intermediates to `target/app/`. Release builds write the runnable JARs to
 `dist/`. The root Maven build selects the application for `exec:java`.
 
 ## GitHub and use on other machines
@@ -194,7 +194,7 @@ Generic tests live in [pdf-security/src/test/java](../pdf-security/src/test/java
 policy, RFC 3161 exchange verification, custom-profile signing/renewal, tampering,
 profile mismatch, refusal to downgrade and preservation of existing destinations.
 Synthetic keys and TSA/OCSP helpers are in a test-only classifier JAR, excluded
-from the production library and both runnable distributions. DICOM/archive,
+from the production library and the runnable distributions. DICOM/archive,
 PDF/A and GUI integration tests remain in the application.
 
 Existing third-party notices, source retention and the EdDSA exclusion remain

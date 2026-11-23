@@ -31,16 +31,18 @@ for attempt in 1 2 3; do
     application_version=${application_version##* }
     bash .github/scripts/check-viewer.sh
     viewer_version=$(node -p "require('./viewer/package.json').version")
-    mvn --batch-mode --no-transfer-progress "-Ddicompdf.test.verapdf=${VERAPDF:?}" verify
+    xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24" mvn --batch-mode --no-transfer-progress "-Ddicompdf.test.verapdf=${VERAPDF:?}" verify
     python3 scripts/check_desktop_distribution.py --version "$application_version" --verapdf "$VERAPDF"
 
     release="target/releases/$application_version"
     mkdir -p "$release"
     cp "dist/dicom-pdf-$application_version.jar" "dist/dicom-pdf-$application_version-desktop.jar" \
+        "dist/dicom-pdf-$application_version-viewer.jar" \
         "target/dicom-pdf-chrome-$viewer_version.zip" src/main/resources/viewer.html "$release/"
     (cd "$release" && sha256sum -- *.jar *.zip viewer.html > SHA256SUMS)
 
     git add -u
+    git add docs/desktop-viewer.png
     git -c user.name='github-actions[bot]' \
         -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
         commit -m 'Bump application and viewer minor versions' -m "$marker"
@@ -59,7 +61,8 @@ for attempt in 1 2 3; do
         exit 1
     fi
     echo "$branch_ref advanced during attempt $attempt. Found $latest_tip."
-    mv -- "dist/dicom-pdf-$application_version.jar" "dist/dicom-pdf-$application_version-desktop.jar" "$release/"
+    mv -- "dist/dicom-pdf-$application_version.jar" "dist/dicom-pdf-$application_version-desktop.jar" \
+        "dist/dicom-pdf-$application_version-viewer.jar" "$release/"
     tip=$latest_tip
 done
 

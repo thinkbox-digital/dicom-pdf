@@ -95,7 +95,7 @@ not modify its bytes or signature coverage. CLI no-overwrite rules are unchanged
 
 ## Desktop certificate selection
 
-Launch `java -jar dist/dicom-pdf-0.25.0-desktop.jar`. The single **Signing identity
+Launch `java -jar dist/dicom-pdf-0.46.0-desktop.jar`. The single **Signing identity
 or JSON policy** picker accepts an optional `.p12`, `.pfx` or institutional `.json`.
 For a certificate file with the passphrase field blank, click Create. The desktop prompts for its password, following the
 EA-PDF certificate/password workflow. It transfers the password only over private
@@ -154,8 +154,8 @@ Example local configuration (paths resolve relative to the configuration file):
 
 ```sh
 mvn verify
-java -jar dist/dicom-pdf-0.25.0.jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
-java -jar dist/dicom-pdf-0.25.0.jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
+java -jar dist/dicom-pdf-0.46.0.jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
+java -jar dist/dicom-pdf-0.46.0.jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
 ```
 
 For verification, supply `protection` and omit `pkcs12`, `passphraseFile` and
@@ -256,9 +256,9 @@ checks to pass. A failed or indeterminate required protection check publishes
 no PDF; no weaker substitute is produced.
 
 ```sh
-java -jar dist/dicom-pdf-0.25.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
-java -jar dist/dicom-pdf-0.25.0.jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
-java -jar dist/dicom-pdf-0.25.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
+java -jar dist/dicom-pdf-0.46.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
+java -jar dist/dicom-pdf-0.46.0.jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
+java -jar dist/dicom-pdf-0.46.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
 ```
 
 Renewal needs `PADES_B_LTA`, the TSA URL, trust/evidence and veraPDF. Archives
@@ -358,9 +358,9 @@ signature and trust checks apply independently of transport.
 ## External evidence renewal
 
 ```sh
-java -jar dist/dicom-pdf-0.25.0.jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
-java -jar dist/dicom-pdf-0.25.0.jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
-java -jar dist/dicom-pdf-0.25.0.jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
+java -jar dist/dicom-pdf-0.46.0.jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
+java -jar dist/dicom-pdf-0.46.0.jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
+java -jar dist/dicom-pdf-0.46.0.jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
 ```
 
 Renewal requires a signing identity, timestamped protection, explicit trust/CRLs
@@ -404,7 +404,7 @@ Do not assume that repeated SHA-256/RSA timestamps provide indefinite protection
 
 ### Dependency advisory status
 
-COSE-JAVA's unused `net.i2p.crypto:eddsa` provider is excluded from both runnable
+COSE-JAVA's unused `net.i2p.crypto:eddsa` provider is excluded from the runnable
 JARs. The supported C2PA algorithms remain RSA-PSS and P-256. The upstream
 [EdDSA-Java issue](https://github.com/str4d/ed25519-java/issues/82) describes the
 signature-malleability defect tracked as CVE-2020-36843.
@@ -452,6 +452,10 @@ The report shows a successful fallback as a passed check with the reason it
 used the bundled certificate.
 These certificates apply to timestamp checks. The viewer validates the signatures and the PDF’s stored revocation
 evidence locally. Its certificate requests carry no archive files or data.
+
+The Java desktop viewer automatically loads the bundled DigiCert Trusted Root G4
+for the archive’s declared timestamped or B-LTA protection. It verifies the
+embedded timestamp evidence offline and uses the CA you supply for signer trust.
 
 Supply the archive signer’s independently trusted CA certificate using
 **Add certificates…** or **Signing CA certificate URL**. The URL must be HTTPS

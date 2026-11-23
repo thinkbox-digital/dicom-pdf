@@ -40,8 +40,8 @@ jobs:
           cache-dependency-path: scripts/requirements.txt
       - name: Install veraPDF
         run: bash .github/scripts/install-verapdf.sh
-      - name: Install Poppler
-        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Install Poppler and Xvfb
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils xvfb xauth
       - name: Verify release and commit new versions
         id: release
         run: bash .github/scripts/bump-on-push.sh

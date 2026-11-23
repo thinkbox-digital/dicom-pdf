@@ -18,7 +18,7 @@ and reports.
 You need Java 21 and a graphical desktop. Launch the desktop JAR in `dist/`:
 
 ```sh
-java -jar dist/dicom-pdf-0.25.0-desktop.jar
+java -jar dist/dicom-pdf-0.46.0-desktop.jar
 ```
 
 If you use IntelliJ, the **Archival DICOM Desktop** run configuration opens the
@@ -179,9 +179,52 @@ still report a problem. No result proves clinical completeness.
 
 ## View images and reports
 
-The desktop's **Open PDF** uses your usual PDF reader. For interactive DICOM
-viewing, use the Chrome extension or save the attached `viewer.html` and open it
-in a browser. The viewer runs locally with its code and codecs included.
+The creator's **Open PDF** uses your usual PDF reader. For interactive DICOM
+viewing, use the Java desktop viewer or Chrome extension, or save the attached
+`viewer.html` and open it in a browser.
+
+### Desktop DICOM viewer
+
+Launch the standalone JavaFX viewer JAR with Java 21:
+
+```sh
+java -jar dist/dicom-pdf-0.46.0-viewer.jar
+java -jar dist/dicom-pdf-0.46.0-viewer.jar out/study.pdf
+```
+
+Use **Open PDF…**, Ctrl+O (Command+O on macOS), or drop an archive onto the
+window. On Linux, Open and Save use the desktop portal when available.
+**Data** shows exam details and series cards, with an exam picker for multiple
+exams. Drag the dividers to resize the side panes. Use the center pane to view
+originals and PDF reference pages. The DICOM filename is beside the view tabs.
+When you scroll, the current image stays visible until the next one is ready.
+**Info** shows the supplied series and study context, stack position,
+orientation, window values and zoom when available. The **Metadata** pane
+scrolls as one list. Its view and download buttons open or save attachments.
+**Export metadata…** offers selected or all images and fields, a spreadsheet
+or detailed tag CSV, and the PDF's document XMP. Security verification starts
+in the background when the first image or PDF page appears. Select the archive
+filename to open the report, add a trusted CA, or save the results as JSON.
+The archive filename turns green for passed checks, red for failed checks,
+or amber for incomplete checks. Press Esc to close the report.
+**Save** exports original files, ZIPs and adjusted image copies.
+
+The Java viewer checks an original's recorded SHA-256 before displaying it.
+The PDF reference tab remains available when the Java decoder cannot display an
+original, including JPEG 2000 files whose codestream precision conflicts with
+the declared Bits Stored. The browser viewer also has additional attachment
+previews and comparison controls.
+The JavaFX surface preview requires JavaFX 3D support on the desktop.
+
+#### Desktop security report checks
+
+The JavaFX report follows the extension’s layout and controls. Its
+file counts update during checksum verification, then stay visible as Java
+checks PDF signatures, timestamps and revisions. Expand the C2PA, PAdES
+and certificate trust findings for details. Select text directly in the
+report to copy it. **Save report** exports JSON, and **Esc** closes the report.
+Trusted signing CA selections stay with the viewer session. The timestamp
+CA checkbox controls the public timestamp CA sources used in verification.
 
 ### Install the Chrome extension
 
@@ -220,6 +263,8 @@ pane shows file information, other supplied files and references.
 
 Switch between **DICOM image** and **PDF reference** to explore the source image
 or read its archive page. The PDF reference keeps its original baseline frame.
+While **PDF reference** is selected, choosing another image opens its mapped
+reference page in the same tab.
 Encapsulated PDF and structured reports open from the data list. **Page text**
 shows selectable text from a PDF report; it does not perform OCR.
 Raster image attachments open fitted to the available width and height, including
@@ -228,7 +273,7 @@ area: brightness, contrast, zoom, rotation, invert, Fit, Reset and fullscreen.
 Zoomed images scroll or pan inside the viewing area; the controls stay visible.
 Ctrl+scroll zooms, and dragging pans. **Save → Image copy (PNG)** produces an
 adjusted PNG marked as a viewing copy; **Save → Original file** recovers the
-unchanged supplied file. **Save → Originals ZIP…** opens the file-scope dialog.
+unchanged supplied file. Choose a scope under **Save → Originals ZIP**.
 
 Drag a pane divider to resize it. Double-click the divider to restore its default
 width. Narrow windows start with Metadata collapsed; use its pane button to reopen it.
@@ -437,8 +482,12 @@ library artifacts are in `target/pdf-security/`. See the
 
 For a local release build, use Python 3 to advance the application version and
 update distribution references. Maven's `verify` phase publishes the checked
-JAR pair to `dist/` and retires superseded JARs. Set `VERAPDF` to the executable
-path to run the conformance checks below.
+creator, viewer and command-line JARs to `dist/` and retires superseded JARs.
+It also refreshes the README’s desktop viewer screenshot using a checked-in
+synthetic CT fixture. Run the release build in a graphical session, or wrap
+the Maven command with `xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24"`
+on headless Linux.
+Set `VERAPDF` to the executable path to run the conformance checks below.
 
 ```sh
 python3 scripts/bump_application_version.py
@@ -446,7 +495,7 @@ mvn "-Ddicompdf.test.verapdf=$VERAPDF" verify
 python3 scripts/check_desktop_distribution.py --verapdf "$VERAPDF"
 ```
 
-Viewer builds need Node/npm and Python 3:
+Browser viewer builds need Node/npm and Python 3:
 
 ```sh
 npm ci --prefix viewer
@@ -470,7 +519,7 @@ conversion time. To favor smaller archives, pass
 `-Dorg.apache.pdfbox.filter.deflatelevel=-1` before `-jar` to use the PDFBox
 default compression level. Both settings preserve the original attachment bytes.
 
-For command-line options, run `java -jar dist/dicom-pdf-0.25.0.jar --help`.
+For command-line options, run `java -jar dist/dicom-pdf-0.46.0.jar --help`.
 The project uses Apache-2.0 with retained [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Further reading
