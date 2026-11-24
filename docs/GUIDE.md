@@ -18,7 +18,7 @@ and reports.
 You need Java 21 and a graphical desktop. Launch the desktop JAR in `dist/`:
 
 ```sh
-java -jar dist/dicom-pdf-0.47.0-desktop.jar
+java -jar dist/dicom-pdf-0.48.0-desktop.jar
 ```
 
 If you use IntelliJ, the **Archival DICOM Desktop** run configuration opens the
@@ -188,8 +188,8 @@ viewing, use the Java desktop viewer or Chrome extension, or save the attached
 Launch the standalone JavaFX viewer JAR with Java 21:
 
 ```sh
-java -jar dist/dicom-pdf-0.47.0-viewer.jar
-java -jar dist/dicom-pdf-0.47.0-viewer.jar out/study.pdf
+java -jar dist/dicom-pdf-0.48.0-viewer.jar
+java -jar dist/dicom-pdf-0.48.0-viewer.jar out/study.pdf
 ```
 
 Use **Open PDF…**, Ctrl+O (Command+O on macOS), or drop an archive onto the
@@ -235,7 +235,7 @@ CA checkbox controls the public timestamp CA sources used in verification.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.71.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.72.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
@@ -519,7 +519,7 @@ conversion time. To favor smaller archives, pass
 `-Dorg.apache.pdfbox.filter.deflatelevel=-1` before `-jar` to use the PDFBox
 default compression level. Both settings preserve the original attachment bytes.
 
-For command-line options, run `java -jar dist/dicom-pdf-0.47.0.jar --help`.
+For command-line options, run `java -jar dist/dicom-pdf-0.48.0.jar --help`.
 The project uses Apache-2.0 with retained [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Further reading
