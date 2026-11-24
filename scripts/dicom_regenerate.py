@@ -562,7 +562,7 @@ The repository default is target/dicom-regenerate/signing.json.
     parser.add_argument("--input", type=Path, help="override in/, or the examples/ root with --example")
     parser.add_argument("--output", type=Path,
                         help="override the PDF directory under out/, with examples in its examples/ subdirectory")
-    parser.add_argument("--jar", type=Path, default=PROJECT / "dist/dicom-pdf-0.52.0.jar")
+    parser.add_argument("--jar", type=Path, default=PROJECT / "dist/dicom-pdf-0.53.0.jar")
     parser.add_argument("--java", default="java")
     parser.add_argument("--source-role", choices=SOURCE_ROLES,
                         help="override the role (default: archival-master or the role declared by an example)")
