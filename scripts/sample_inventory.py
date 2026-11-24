@@ -456,7 +456,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, default=Path("in"))
     parser.add_argument("--work", type=Path, default=Path("target/additional-samples"))
-    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.53.0.jar"))
+    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.54.0.jar"))
     parser.add_argument("--include-existing", action="store_true", help="Also stage samples mentioned in previous conversion reports")
     parser.add_argument("--no-probe", action="store_true", help="Skip the optional Java metadata-only compatibility scan")
     args = parser.parse_args()

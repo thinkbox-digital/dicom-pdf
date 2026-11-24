@@ -1,4 +1,4 @@
-# Offline attachment viewer — 0.77.0
+# Offline attachment viewer — 0.78.0
 
 The file integrity report opens at the top on every visit. Its close × stays in
 the top-right header while the report scrolls; Save report remains at the bottom.
@@ -80,7 +80,7 @@ opening, a PDF-reference tab, metadata/inventory and original-file
 downloads. See [extension installation and build instructions](extension/README.md).
 Run `npm --prefix viewer run build` from the repository root to produce
 `src/main/resources/viewer.html`, `target/chrome-extension` and
-`target/dicom-pdf-chrome-0.77.0.zip`.
+`target/dicom-pdf-chrome-0.78.0.zip`.
 
 Archive integrity checks run automatically. The PDF worker hashes decoded
 attachments and returns only their sizes and SHA-256 values for comparison.
