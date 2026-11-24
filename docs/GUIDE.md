@@ -483,8 +483,8 @@ library artifacts are in `target/pdf-security/`. See the
 For a local release build, use Python 3 to advance the application version and
 update distribution references. Maven's `verify` phase publishes the checked
 creator, viewer and command-line JARs to `dist/` and retires superseded JARs.
-It also refreshes the README’s desktop viewer and security report screenshots using a checked-in
-synthetic CT fixture. Run the release build in a graphical session, or wrap
+The build captures a synthetic viewer screenshot under `target/` and
+refreshes the README’s security report screenshot. Run the release build in a graphical session, or wrap
 the Maven command with `xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24"`
 on headless Linux.
 Set `VERAPDF` to the executable path to run the conformance checks below.

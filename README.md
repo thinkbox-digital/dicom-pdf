@@ -53,7 +53,9 @@ The viewer can display the first image while
 archive checks run in the background. The current application distribution
 (`0.46.0`) embeds viewer `0.70.0` in new archives.
 
-![Java desktop DICOM viewer displaying a synthetic CT image](docs/desktop-viewer.png)
+![Java desktop DICOM viewer displaying an axial CT image](docs/desktop-viewer.png)
+
+*CT image captured with the standalone viewer from release `v0.46.0`.*
 
 The updated viewer also opens DICOM Surface Segmentation attachments in a
 rotatable **3D surface** tab, including older exports such as `LASegSample.dcm`.

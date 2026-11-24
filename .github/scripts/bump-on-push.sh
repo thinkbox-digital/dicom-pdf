@@ -42,7 +42,7 @@ for attempt in 1 2 3; do
     (cd "$release" && sha256sum -- *.jar *.zip viewer.html > SHA256SUMS)
 
     git add -u
-    git add docs/desktop-viewer.png docs/desktop-security-report.png
+    git add docs/desktop-security-report.png
     git -c user.name='github-actions[bot]' \
         -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
         commit -m 'Bump application and viewer minor versions' -m "$marker"

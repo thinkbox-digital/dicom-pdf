@@ -550,8 +550,6 @@
                   <arg value="${project.basedir}/../dist" />
                   <arg value="${project.version}" />
                 </java>
-                <copy file="${project.build.directory}/desktop-viewer.png"
-                      tofile="${project.basedir}/../docs/desktop-viewer.png" overwrite="true" />
                 <copy file="${project.build.directory}/desktop-security-report.png"
                       tofile="${project.basedir}/../docs/desktop-security-report.png" overwrite="true" />
               </target>
