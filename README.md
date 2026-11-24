@@ -53,9 +53,9 @@ The viewer can display the first image while
 archive checks run in the background. The current application distribution
 (`0.51.0`) embeds viewer `0.75.0` in new archives.
 
-![Java desktop DICOM viewer displaying an axial CT image](docs/desktop-viewer.png)
+![Java desktop DICOM viewer displaying an axial CT image with series, orientation, and window overlays](docs/desktop-viewer.png)
 
-*CT image captured with the standalone viewer from release `v0.46.0`.*
+*CT image captured with standalone viewer build `0.51.0`.*
 
 Click the PDF filename to open the archive security report. It checks supported
 PDF signatures, RFC 3161 timestamps, C2PA credentials and DICOM PAdES B-LTA
