@@ -52,7 +52,7 @@ extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. New archives embed a copy of the browser viewer.
 
-![Java desktop DICOM viewer displaying greg.pdf with its left series pane open](docs/desktop-viewer.png?v=0.56.0)
+![DICOM PDF Viewer showing an axial chest CT image from greg.pdf with the left series pane open](docs/desktop-viewer.png?v=0.56.0&rev=a8690b83)
 
 *greg.pdf open in desktop viewer `0.56.0`.*
 
