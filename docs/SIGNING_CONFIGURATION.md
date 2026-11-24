@@ -225,9 +225,9 @@ also requires the configured signing key and password. Without C2PA, B-LTA renew
 does not require the institution's private key.
 
 ```sh
-java -jar dist/dicom-pdf-0.48.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/location/signing.json
-java -jar dist/dicom-pdf-0.48.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/location/signing.json
-java -jar dist/dicom-pdf-0.48.0.jar verify-security --input out/example-renewed.pdf --security-config /secure/location/verification.json --output target/lta-report.json
+java -jar dist/dicom-pdf-0.49.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/location/signing.json
+java -jar dist/dicom-pdf-0.49.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/location/signing.json
+java -jar dist/dicom-pdf-0.49.0.jar verify-security --input out/example-renewed.pdf --security-config /secure/location/verification.json --output target/lta-report.json
 ```
 
 For verification, omit `pkcs12` and `passphraseFile`; keep the expected protection,
