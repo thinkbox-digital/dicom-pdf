@@ -1,0 +1,32 @@
+- title: DICOM PDF
+  links:
+    - title: Home
+      url: /
+    - title: User guide
+      url: /GUIDE.html
+
+- title: Security and preservation
+  links:
+    - title: Security and verification
+      url: /SECURITY.html
+    - title: Signing configuration
+      url: /SIGNING_CONFIGURATION.html
+    - title: Independent validation
+      url: /INDEPENDENT-VALIDATION.html
+
+- title: Developer reference
+  links:
+    - title: DICOM source validation
+      url: /DICOM-STRUCTURE.html
+    - title: DICOM specification review
+      url: /SPEC-REVIEW.html
+    - title: PDF/A-4f archival profile
+      url: /profile/0.3.0/PROFILE.html
+    - title: C2PA Content Credentials profile
+      url: /profile/0.4.0/PROFILE.html
+    - title: Verification tests
+      url: /VERIFICATION.html
+    - title: PDF security library
+      url: /PDF_SECURITY_LIBRARY.html
+    - title: Browser viewer integration
+      url: /CORNERSTONE-INTEGRATION.html

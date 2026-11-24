@@ -1,0 +1,9 @@
+title: DICOM PDF
+description: Create, view, and verify self-contained PDF/A-4f archives that preserve original DICOM files and metadata for long-term access.
+
+defaults:
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: default

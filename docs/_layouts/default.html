@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% seo %}
+  <link rel="stylesheet" href="{{ '/assets/css/dicom-site.css' | relative_url }}">
+  <script src="{{ '/assets/js/dicom-site.js' | relative_url }}" defer></script>
+</head>
+<body>
+  {% assign repository = site.github.repository_url | default: 'https://github.com/thinkbox-digital/dicom-pdf' %}
+  {% assign branch = site.github.source.branch | default: 'main' %}
+  {% assign current_url = page.url | replace: '/index.html', '/' %}
+  <a class="site-skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button class="site-menu-toggle" id="site-menu-toggle" type="button" aria-label="Toggle navigation" aria-controls="site-nav" aria-expanded="false">
+        <span class="site-menu-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 6h18M3 12h18M3 18h18"/>
+          </svg>
+        </span>
+      </button>
+      <a class="site-brand" href="{{ '/' | relative_url }}">
+        <span class="site-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 3h8l4 4v14H6zM14 3v5h4M9 12h6M9 16h6"/>
+          </svg>
+        </span>
+        {{ site.title | escape }}
+      </a>
+      <button class="site-theme-toggle" id="site-theme-toggle" type="button" aria-label="Switch to dark mode">
+        <span class="site-theme-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M19 5l-1.5 1.5m-11 11L5 19"/>
+          </svg>
+        </span>
+      </button>
+      <form class="site-search" id="site-search" role="search" data-search-index="{{ '/search.json' | relative_url }}">
+        <span class="site-search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="10.5" cy="10.5" r="5.5"/>
+            <path d="m15 15 5 5"/>
+          </svg>
+        </span>
+        <input id="site-search-input" type="search" aria-label="Search documentation" aria-controls="site-search-results" placeholder="Search" autocomplete="off">
+        <div class="site-search-results" id="site-search-results" hidden></div>
+      </form>
+      <a class="site-repo" href="{{ repository }}" aria-label="DICOM PDF on GitHub">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m12 2 10 10-10 10L2 12zM8 8l8 8m-4-4v5"/>
+          <circle cx="8" cy="8" r="1"/><circle cx="16" cy="16" r="1"/><circle cx="12" cy="17" r="1"/>
+        </svg>
+        <span>thinkbox-digital/dicom-pdf</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="site-grid">
+    <nav class="site-nav" id="site-nav" aria-label="Documentation">
+      {% for group in site.data.navigation %}
+        <p class="site-nav-title">{{ group.title | escape }}</p>
+        <ul class="site-nav-group">
+          {% for item in group.links %}
+            <li><a class="site-nav-link" href="{{ item.url | relative_url }}"{% if current_url == item.url %} aria-current="page"{% endif %}>{{ item.title | escape }}</a></li>
+          {% endfor %}
+        </ul>
+      {% endfor %}
+    </nav>
+
+    <main class="site-content" id="main-content" tabindex="-1">
+      {{ content }}
+    </main>
+
+    <nav class="site-toc" id="site-toc" aria-label="On this page" hidden>
+      <p class="site-nav-title">Table of contents</p>
+      <ul id="site-toc-list"></ul>
+    </nav>
+  </div>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <span>{{ site.title | escape }}</span>
+      {% if page.path %}
+        <a href="{{ repository }}/edit/{{ branch }}/docs/{{ page.path }}">Improve this page</a>
+      {% endif %}
+    </div>
+  </footer>
+</body>
+</html>
