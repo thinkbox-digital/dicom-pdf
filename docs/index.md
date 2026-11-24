@@ -6,7 +6,16 @@ title: Archival DICOM in PDF/A
 
 DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4f archive. The archive includes reference images you can read in a regular PDF reader and preserves the original files for recovery. The standalone viewer and Chrome extension open the embedded DICOM images for interactive viewing.
 
-[Download the application](https://github.com/thinkbox-digital/dicom-pdf/releases/latest) · [Browse example archives](https://github.com/thinkbox-digital/dicom-pdf/tree/main/examples)
+{% assign release_page = 'https://github.com/thinkbox-digital/dicom-pdf/releases/latest' %}
+{% assign release = site.github.latest_release %}
+{% assign version = release.tag_name | remove_first: 'v' %}
+{% assign jar_prefix = 'dicom-pdf-' | append: version %}
+{% assign creator_name = jar_prefix | append: '-desktop.jar' %}
+{% assign viewer_name = jar_prefix | append: '-viewer.jar' %}
+{% assign creator = release.assets | where: 'name', creator_name | first %}
+{% assign viewer = release.assets | where: 'name', viewer_name | first %}
+
+[Download the creator]({{ creator.browser_download_url | default: release_page }}) · [Download the desktop viewer]({{ viewer.browser_download_url | default: release_page }}) · [Download example archives (ZIP)]({{ release_page }}/download/dicom-pdf-examples.zip) · [Browse example archives](https://github.com/thinkbox-digital/dicom-pdf/tree/main/examples)
 
 ![The standalone Java viewer displaying an axial CT image with series, orientation, and window overlays](desktop-viewer.png?v=fb5673e)
 
