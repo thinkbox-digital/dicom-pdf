@@ -35,15 +35,18 @@ parser = argparse.ArgumentParser(
     prog="anonymize-in.sh",
     description="Read in/ recursively and write anonymized test images to "
                 "target/anonymized-in/, preserving filenames, paths and archive formats. "
-                "Supplied inputs are never modified.",
+                "Use --in-place to replace supplied files after scrubbing.",
     epilog="Requires pydicom 3.0.2; 7z inputs also require py7zr 1.1.4. "
            "Pixels are unchanged: visually review burned-in text and recognizable anatomy. "
            "This is not a certified DICOM confidentiality profile implementation.",
 )
 parser.add_argument("--input", type=Path, default=PROJECT / "in",
                     help="source directory (default: repository in/)")
-parser.add_argument("--output", type=Path, default=PROJECT / "target/anonymized-in",
-                    help="new directory under target/; must not already exist")
+publication = parser.add_mutually_exclusive_group()
+publication.add_argument("--output", type=Path,
+                         help="new directory under target/ (default: target/anonymized-in/)")
+publication.add_argument("--in-place", action="store_true",
+                         help="replace inputs with scrubbed copies without a backup")
 parser.add_argument("--strict", action="store_true",
                     help="abort instead of omitting unreadable or incomplete DICOM inputs")
 parser.add_argument("--max-file-mib", type=int, default=512,
@@ -58,6 +61,7 @@ args = parser.parse_args(sys.argv[2:])
 
 try:
     import pydicom
+    from pydicom.datadict import DicomDictionary
     from pydicom.dataset import FileMetaDataset
     from pydicom.errors import InvalidDicomError
     from pydicom.uid import (ExplicitVRBigEndian, ExplicitVRLittleEndian,
@@ -70,6 +74,10 @@ except ImportError:
 warnings.filterwarnings("ignore")
 PIXELS = (0x7FE00010, 0x7FE00008, 0x7FE00009)
 TEXT_VRS = {"AE", "AS", "LO", "LT", "SH", "ST", "UC", "UR", "UT"}
+# Some standard person-name tags have no "Name" in their keyword.
+PERSON_NAME_TAGS = {
+    tag for tag, (vr, _, _, _, _) in DicomDictionary.items() if vr == "PN"
+}
 # Retain the units used to interpret rescaled pixels, not descriptive free text.
 SAFE_TEXT = {"RescaleType"}
 STRUCTURAL_UIDS = {
@@ -88,6 +96,7 @@ salt = secrets.token_bytes(32)
 counts = Counter()
 consumed = 0
 entry_count = 0
+replacement_started = False
 
 
 def token(value):
@@ -108,14 +117,21 @@ def clean_metadata(dataset):
                 or tag.group in (0x0004, 0x0400, 0xFFFA, 0xFFFC)
                 or keyword in REMOVE_SEQUENCES):
             del dataset[tag]
+        elif element.VR == "PN":
+            element.value = "ANONYMOUS"
+        elif tag in PERSON_NAME_TAGS or "Name" in keyword:
+            if element.VR in TEXT_VRS or element.VR == "CS":
+                element.value = ""
+            else:
+                # A coded name or a name with an unexpected binary VR can
+                # retain the original value even if its text is scrubbed.
+                del dataset[tag]
         elif element.VR == "SQ":
             if any(word in keyword for word in IDENTITY_WORDS):
                 del dataset[tag]
             else:
                 for item in element.value:
                     clean_metadata(item)
-        elif element.VR == "PN":
-            element.value = "ANONYMOUS"
         elif element.VR in TEXT_VRS and keyword not in SAFE_TEXT:
             element.value = ""
         elif element.VR in {"DA", "TM", "DT"}:
@@ -416,22 +432,63 @@ def walk_error(error):
     raise ValueError("Cannot read a source directory") from error
 
 
+def source_state(path):
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or path.resolve(strict=True) != path:
+        raise ValueError("Input is no longer an ordinary file")
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_mode
+
+
+def replace_inputs(replacements):
+    global replacement_started
+    for original, _, expected in replacements:
+        if source_state(original) != expected:
+            raise ValueError("Input changed during scrubbing")
+    replacement_started = True
+    for original, cleaned, expected in replacements:
+        # A neighboring temporary file allows atomic replacement even when
+        # target/ and the input are on different filesystems.
+        with tempfile.NamedTemporaryFile(dir=original.parent, prefix=".anonymize-in-",
+                                         delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                with cleaned.open("rb") as staged:
+                    shutil.copyfileobj(staged, output)
+                output.close()
+                if source_state(original) != expected:
+                    raise ValueError("Input changed during scrubbing")
+                temporary.chmod(expected[-1] & 0o777)
+                os.replace(temporary, original)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+
 def main():
-    source, destination = args.input.absolute(), args.output.absolute()
+    source = args.input.absolute()
     if any(value <= 0 for value in (args.max_file_mib, args.max_total_mib, args.max_files, args.max_depth)):
         parser.error("size, entry and depth limits must be positive")
     if source.is_symlink() or not source.is_dir():
         parser.error("--input must be an ordinary directory")
     source = source.resolve()
-    if destination.exists() or destination.is_symlink():
-        parser.error("--output already exists; choose a new directory")
-    destination = destination.resolve()
-    if not destination.is_relative_to(PROJECT / "target"):
-        parser.error("--output must be a new directory under the repository's target/")
-    if source.is_relative_to(destination) or destination.is_relative_to(source):
-        parser.error("input and output directories must not overlap")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".anonymize-in-", dir=destination.parent) as temporary:
+    target = PROJECT / "target"
+    destination = None
+    staging_parent = target.resolve()
+    if args.in_place:
+        if staging_parent.is_relative_to(source):
+            parser.error("--input must not contain the target/ staging directory")
+    else:
+        destination = (args.output or target / "anonymized-in").absolute()
+        if destination.exists() or destination.is_symlink():
+            parser.error("--output already exists; choose a new directory")
+        destination = destination.resolve()
+        if not destination.is_relative_to(target):
+            parser.error("--output must be a new directory under the repository's target/")
+        if source.is_relative_to(destination) or destination.is_relative_to(source):
+            parser.error("input and output directories must not overlap")
+        staging_parent = destination.parent
+    staging_parent.mkdir(parents=True, exist_ok=True)
+    replacements = []
+    with tempfile.TemporaryDirectory(prefix=".anonymize-in-", dir=staging_parent) as temporary:
         work = Path(temporary)
         result, scratch = work / "cleaned", work / "scratch"
         result.mkdir()
@@ -446,11 +503,18 @@ def main():
             dirs.sort()
             for name in sorted(files):
                 path = Path(directory) / name
-                reserve(path.stat().st_size)
-                process(path, result / path.relative_to(source), scratch, name)
+                expected = source_state(path) if args.in_place else None
+                reserve(expected[2] if expected is not None else path.stat().st_size)
+                cleaned = result / path.relative_to(source)
+                process(path, cleaned, scratch, name)
+                if expected is not None and cleaned.is_file():
+                    replacements.append((path, cleaned, expected))
         if not counts["images"]:
             raise ValueError("No DICOM images found; no output was published")
-        result.rename(destination)
+        if args.in_place:
+            replace_inputs(replacements)
+        else:
+            result.rename(destination)
     print(f"Anonymized {counts['images']} images from {counts['archives']} archives and loose inputs.")
     print(f"Omitted {counts['omitted_non_dicom']} non-DICOM files and "
           f"{counts['omitted_non_image_dicom']} non-image DICOM objects (including DICOMDIR).")
@@ -459,13 +523,18 @@ def main():
     print(f"Pixel review needed: {counts['images_needing_pixel_review']} images have no BurnedInAnnotation=NO assertion.")
     print("All pixels remain unchanged; review images before sharing. Test use only.")
     print("Original filenames, folder paths and archive formats are preserved; review names before sharing.")
-    print(f"Cleaned input: {destination}")
+    if args.in_place:
+        print(f"Replaced {len(replacements)} files in place: {source}")
+        print("Files without a scrubbed copy were left in the input directory.")
+    else:
+        print(f"Cleaned input: {destination}")
 
 
 try:
     main()
 except KeyboardInterrupt:
-    sys.exit("Cancelled; no output was published.")
+    status = "Some inputs may already have been replaced." if replacement_started else "No output was published."
+    sys.exit(f"Cancelled. {status}")
 except Exception as error:
     # Library exception messages may include original paths or metadata values.
     if isinstance(error, ValueError) and error.__traceback__.tb_next is not None:
@@ -475,5 +544,6 @@ except Exception as error:
         message = str(error) if origin.tb_frame.f_code.co_filename == "<stdin>" else type(error).__name__
     else:
         message = type(error).__name__
-    sys.exit(f"Anonymization failed: {message}. No output was published.\n")
+    status = "Some inputs may already have been replaced." if replacement_started else "No output was published."
+    sys.exit(f"Anonymization failed: {message}. {status}\n")
 PYTHON

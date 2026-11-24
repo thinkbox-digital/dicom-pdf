@@ -104,9 +104,10 @@ class AnonymizeInTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def run_script(self, *extra, success=True, output=None):
+    def run_script(self, *extra, success=True, output=None, in_place=False):
+        publication = ["--in-place"] if in_place else ["--output", str(output or self.output)]
         result = subprocess.run(
-            ["bash", str(SCRIPT), "--input", str(self.source), "--output", str(output or self.output), *extra],
+            ["bash", str(SCRIPT), "--input", str(self.source), *publication, *extra],
             env={**os.environ, "PYTHON": sys.executable}, capture_output=True, text=True, timeout=60,
         )
         if success:
@@ -319,6 +320,32 @@ class AnonymizeInTest(unittest.TestCase):
             self.assertEqual(b"", archive.infolist()[0].comment)
             self.assertNotIn(b"SYNTHETIC_SECRET", archive.read("SYNTHETIC_SECRET/image.dcm"))
 
+    def test_name_fields_are_scrubbed_inside_retained_sequences(self):
+        ds = pydicom.dcmread(io.BytesIO(image()))
+        ref = ds.ReferencedImageSequence[0]
+        ref.OperatorsName = ["SYNTHETIC_SECRET^ONE", "SYNTHETIC_SECRET^TWO"]
+        ref.InstitutionName = "SYNTHETIC_SECRET"
+        ref.add_new((0x0008, 0x1048), "CS", "SYNTHETIC_SECRET")  # PhysiciansOfRecord
+        ref.add_new((0x0008, 0x1010), "OB", b"SYNTHETIC_SECRET")  # StationName
+        code = Dataset()
+        code.CodeValue = "SYNTHETIC_SECRET"
+        code.CodingSchemeDesignator = "99TEST"
+        code.CodeMeaning = "Synthetic station"
+        ref.PerformedStationNameCodeSequence = [code]
+        path = self.source / "names.dcm"
+        ds.save_as(path, enforce_file_format=True)
+        self.run_script()
+        output = self.output / path.name
+        cleaned = pydicom.dcmread(output)
+        ref = cleaned.ReferencedImageSequence[0]
+        self.assertEqual("ANONYMOUS", ref.OperatorsName)
+        self.assertEqual("", ref.InstitutionName)
+        self.assertEqual("", ref.PhysiciansOfRecord)
+        self.assertNotIn("StationName", ref)
+        self.assertNotIn("PerformedStationNameCodeSequence", ref)
+        self.assertEqual(cleaned.SOPInstanceUID, ref.ReferencedSOPInstanceUID)
+        self.assertNotIn(b"SYNTHETIC_SECRET", output.read_bytes())
+
     def test_gzip_stored_filename_preserved(self):
         source = self.source / "original.dcm.gz"
         with source.open("wb") as output:
@@ -347,6 +374,44 @@ class AnonymizeInTest(unittest.TestCase):
         (self.source / "archive.zip").unlink()
         (self.source / "large.bin").write_bytes(b"x" * (1024**2 + 1))
         self.run_script("--max-file-mib", "1", success=False)
+
+    def test_in_place_replaces_loose_images_and_archives(self):
+        loose = self.source / "nested" / "image.dcm"
+        loose.parent.mkdir()
+        loose.write_bytes(image())
+        loose.chmod(0o640)
+        alias = self.source / "alias.dcm"
+        os.link(loose, alias)
+        archive = self.source / "images.zip"
+        archive.write_bytes(zip_bytes([("image.dcm", image()), ("notes.txt", b"omitted")]))
+        skipped = self.source / "notes.txt"
+        skipped.write_bytes(b"keep original")
+
+        result = self.run_script(in_place=True)
+
+        self.assertIn("Replaced 3 files in place", result.stdout)
+        self.assertFalse(self.output.exists())
+        self.assertEqual(b"keep original", skipped.read_bytes())
+        self.assertEqual(0o640, loose.stat().st_mode & 0o777)
+        self.assertNotIn(b"SYNTHETIC_SECRET", loose.read_bytes())
+        self.assertEqual(loose.read_bytes(), alias.read_bytes())
+        with zipfile.ZipFile(archive) as cleaned:
+            self.assertEqual(["image.dcm"], cleaned.namelist())
+            self.assertNotIn(b"SYNTHETIC_SECRET", cleaned.read("image.dcm"))
+        self.assertFalse(list(self.source.rglob(".anonymize-in-*")))
+
+    def test_in_place_scrubbing_failure_preserves_inputs(self):
+        original = image()
+        path = self.source / "a-valid.dcm"
+        path.write_bytes(original)
+        bad = self.source / "z-unreadable.dcm"
+        bad.write_bytes(b"unreadable")
+
+        result = self.run_script("--strict", in_place=True, success=False)
+
+        self.assertIn("No output was published", result.stderr)
+        self.assertEqual(original, path.read_bytes())
+        self.assertEqual(b"unreadable", bad.read_bytes())
 
     def test_existing_output_and_input_overlap_refused(self):
         (self.source / "image.dcm").write_bytes(image())
