@@ -15,11 +15,11 @@ DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4
 {% assign creator = release.assets | where: 'name', creator_name | first %}
 {% assign viewer = release.assets | where: 'name', viewer_name | first %}
 
-[Download the creator]({{ creator.browser_download_url | default: release_page }}) · [Download the desktop viewer]({{ viewer.browser_download_url | default: release_page }}) · [Download example archives (ZIP)]({{ release_page }}/download/dicom-pdf-examples.zip) · [Browse example archives](https://github.com/thinkbox-digital/dicom-pdf/tree/main/examples)
+[Download the creator]({{ creator.browser_download_url | default: release_page }}) · [Download the desktop viewer]({{ viewer.browser_download_url | default: release_page }}) · [Download example archives (ZIP)]({{ release_page }}/download/dicom-pdf-examples.zip)
 
-![DICOM PDF Viewer showing an axial chest CT image from greg.pdf with the left series pane open](desktop-viewer.png?v=0.56.0&rev=a8690b83)
+![DICOM PDF Viewer showing an axial chest CT image with the left series pane open](desktop-viewer.png?v=0.56.0&rev=e8e17efe)
 
-[View the full-size screenshot with overlays](desktop-viewer.png?v=0.56.0&rev=a8690b83).
+[View the full-size screenshot with overlays](desktop-viewer.png?v=0.56.0&rev=e8e17efe).
 
 ## Open, create, or recover an archive
 
