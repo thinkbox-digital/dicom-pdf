@@ -6,12 +6,14 @@ import com.google.gson.JsonParser;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -39,14 +41,49 @@ final class DesktopViewerDocument implements AutoCloseable {
     private final PackageTools.Package archive;
     private final PDFRenderer renderer;
     private final Manifest manifest;
+    private final SourceContent localDicom;
+    private final DicomInput.Dataset localDataset;
     private Manifest.Image cachedEntry;
     private SourceContent cachedOriginal;
     private Map<String, DicomMetadataInventory.Image> metadataInventory;
     final Path path;
     final List<Manifest.Image> entries;
 
+    static DesktopViewerDocument open(Path path) throws Exception {
+        if (!Files.isRegularFile(path)) throw new IOException("Choose a DICOM file or DICOM PDF.");
+        var localPath = path.toRealPath();
+        var source = SourceContent.file(localPath);
+        var prefix = new String(source.prefix(1024), StandardCharsets.ISO_8859_1);
+        boolean part10 = prefix.startsWith("DICM", 128);
+        if (!part10 && prefix.startsWith("%PDF-")) return new DesktopViewerDocument(path);
+        DicomInput.Dataset dataset;
+        try {
+            dataset = viewerDataset(source);
+        } catch (IOException | IllegalArgumentException invalid) {
+            if (!part10 && (prefix.contains("%PDF-") || path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".pdf")))
+                return new DesktopViewerDocument(path);
+            throw new IOException("Could not read " + path.getFileName() + " as DICOM: " + invalid.getMessage(), invalid);
+        }
+        return new DesktopViewerDocument(path, source, dataset, Files.size(localPath));
+    }
+
+    private DesktopViewerDocument(Path path, SourceContent source, DicomInput.Dataset dataset, long size) {
+        this.path = path;
+        archive = null;
+        renderer = null;
+        manifest = null;
+        localDicom = source;
+        localDataset = dataset;
+        var name = path.getFileName().toString();
+        var fields = DicomInput.fields(dataset);
+        entries = List.of(new Manifest.Image(name, name, fields.get("SOPInstanceUID"), null, size, 0,
+                null, null, fields, true, false, false, null, null, null));
+    }
+
     DesktopViewerDocument(Path path) throws Exception {
         this.path = path;
+        localDicom = null;
+        localDataset = null;
         archive = new PackageTools.Package(path);
         try {
             manifest = new Gson().fromJson(archive.manifest, Manifest.class);
@@ -68,18 +105,20 @@ final class DesktopViewerDocument implements AutoCloseable {
         }
     }
 
-    String profile() { return manifest.profile() + " " + manifest.profileVersion(); }
-    boolean hasInstitutionalEvidence() { return archive.manifest.has("security"); }
-    int pages() { return archive.pdf.getNumberOfPages(); }
+    boolean isArchive() { return archive != null; }
+    String profile() { return isArchive() ? manifest.profile() + " " + manifest.profileVersion() : "DICOM file"; }
+    boolean hasInstitutionalEvidence() { return isArchive() && archive.manifest.has("security"); }
+    int pages() { return isArchive() ? archive.pdf.getNumberOfPages() : 0; }
     long embeddedOriginalCount() {
+        if (!isArchive()) return 0;
         return entries.stream().filter(entry -> archive.files.containsKey(entry.attachment())).count();
     }
-    List<Manifest.Reference> references() { return manifest.references() == null ? List.of() : manifest.references(); }
-    boolean hasXmp() { return archive.pdf.getDocumentCatalog().getMetadata() != null; }
+    List<Manifest.Reference> references() { return !isArchive() || manifest.references() == null ? List.of() : manifest.references(); }
+    boolean hasXmp() { return isArchive() && archive.pdf.getDocumentCatalog().getMetadata() != null; }
 
     void saveXmp(Path destination) throws Exception {
+        if (!hasXmp()) throw new IOException("This PDF does not contain document XMP.");
         var metadata = archive.pdf.getDocumentCatalog().getMetadata();
-        if (metadata == null) throw new IOException("This PDF does not contain document XMP.");
         write(destination, output -> {
             try (var input = PdfStreams.open(metadata)) { input.transferTo(output); }
         });
@@ -124,6 +163,7 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     DicomMetadataInventory.Image metadataRecord(Manifest.Image entry) throws Exception {
+        if (!isArchive()) throw new IOException("Archive metadata export requires a DICOM PDF.");
         var original = checked(entry);
         var inventory = metadataInventory();
         if (inventory.isEmpty()) return DicomMetadataInventory.captureImage(entry.attachment(), entry.sourcePath(), original);
@@ -134,6 +174,13 @@ final class DesktopViewerDocument implements AutoCloseable {
         return result;
     }
     Map<String, Object> selectedMetadata(Manifest.Image source) throws Exception {
+        if (!isArchive()) {
+            var values = new java.util.LinkedHashMap<String, Object>();
+            values.put("Source file", source.sourcePath());
+            values.put("File size", source.size());
+            DesktopViewerMetadata.addDisplayFields(values, source);
+            return values;
+        }
         var values = DesktopViewerMetadata.sourceFacts(source);
         if (manifest.schemaVersion() == 1 && source.sourceFrame() == null && "rendered".equals(source.status()))
             values.put("Source frame", "1 (legacy)");
@@ -229,12 +276,14 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     List<String> technicalFiles() {
+        if (!isArchive()) return List.of();
         var names = new LinkedHashSet<>(archive.files.keySet());
         entries.forEach(entry -> names.remove(entry.attachment()));
         return List.copyOf(names);
     }
 
     private SourceContent checkedTechnical(String name) throws Exception {
+        if (!isArchive()) throw new IOException("There are no embedded files in a standalone DICOM file.");
         var content = PackageTools.content(archive.requireFile(name));
         var checksums = manifest.artifactSha256();
         String expected = checksums == null ? null : checksums.get(name);
@@ -243,19 +292,8 @@ final class DesktopViewerDocument implements AutoCloseable {
         return content;
     }
 
-    Display previewTechnical(String name) throws Exception {
-        var content = checkedTechnical(name);
-        return supporting(content, content.digest().length());
-    }
-
-    void saveTechnical(String name, Path destination) throws Exception {
-        var content = checkedTechnical(name);
-        write(destination, output -> {
-            try (var input = content.open()) { input.transferTo(output); }
-        });
-    }
-
     BufferedImage page(int page) throws IOException {
+        if (!isArchive()) throw new IOException("There are no PDF pages in a standalone DICOM file.");
         return renderPage(renderer, archive.pdf, page);
     }
 
@@ -284,7 +322,7 @@ final class DesktopViewerDocument implements AutoCloseable {
         SourceContent original = checked(entry);
         DicomInput.Dataset dataset;
         try {
-            dataset = viewerDataset(original);
+            dataset = isArchive() ? viewerDataset(original) : localDataset;
         } catch (IOException invalid) {
             if (field(entry, "SOPClassUID", "").isBlank()) return supporting(original, entry.size());
             throw invalid;
@@ -305,6 +343,9 @@ final class DesktopViewerDocument implements AutoCloseable {
             return new Display(null, "", 1, windows, 1, List.of(), spectrum, null);
         }
         if (UID.EncapsulatedPDFStorage.equals(sop)) {
+            if (!isArchive())
+                return new Display(null, "This DICOM object contains an encapsulated PDF. Selected file metadata is available.",
+                        1, windows, 1);
             byte[] bytes = DesktopViewerSpecial.read(original).getBytes(Tag.EncapsulatedDocument);
             if (bytes == null) throw new IOException("Missing encapsulated PDF");
             try (var embedded = org.apache.pdfbox.Loader.loadPDF(bytes)) {
@@ -473,6 +514,10 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     SourceContent checked(Manifest.Image entry) throws Exception {
+        if (!isArchive()) {
+            if (entry != entries.getFirst()) throw new IOException("DICOM source does not belong to the open file.");
+            return localDicom;
+        }
         if (cachedEntry == entry) return cachedOriginal;
         SourceContent original = PackageTools.content(archive.requireFile(entry.attachment()));
         var digest = original.digest();
@@ -491,6 +536,7 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     void saveZip(List<Manifest.Image> scope, boolean all, Path destination) throws Exception {
+        if (!isArchive()) throw new IOException("An originals ZIP export requires a DICOM PDF.");
         var paths = new java.util.TreeSet<String>();
         for (var entry : scope) {
             String normalized = java.text.Normalizer.normalize(entry.sourcePath(), java.text.Normalizer.Form.NFC)
@@ -552,5 +598,7 @@ final class DesktopViewerDocument implements AutoCloseable {
         catch (NumberFormatException ignored) { return fallback; }
     }
 
-    @Override public void close() throws IOException { archive.close(); }
+    @Override public void close() throws IOException {
+        if (isArchive()) archive.close();
+    }
 }

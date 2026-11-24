@@ -18,11 +18,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--extension", type=Path, default=Path("target/chrome-extension"))
     parser.add_argument("--chromium", help="Chromium executable (defaults to Playwright’s installed Chromium)")
-    parser.add_argument("--standalone", type=Path, help="Check a standalone HTML viewer instead of the extension")
     parser.add_argument("--pdf", type=Path, default=Path("target/viewer-test-pdfs/synthetic-overlays.pdf"))
     parser.add_argument("--report", type=Path, default=Path("target/direct-input-checks"))
     args = parser.parse_args()
-    mode = "standalone" if args.standalone else "extension"
+    mode = "extension"
     report = args.report / mode
     report.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=report) as temp, sync_playwright() as playwright:
@@ -37,13 +36,8 @@ def main():
         with zipfile.ZipFile(loose_zip, "w") as archive:
             archive.write("fixtures/expanded/sc-native-gray8.dcm", "image.dcm")
         chromium = args.chromium or playwright.chromium.executable_path
-        if args.standalone:
-            context = playwright.chromium.launch_persistent_context(str(work / "profile"), executable_path=chromium,
-                headless=True, viewport={"width": 1440, "height": 1000})
-            location = args.standalone.resolve(strict=True).as_uri()
-        else:
-            context = launch(playwright, chromium, args.extension.resolve(strict=True), work / "profile")
-            location = f"chrome-extension://{extension_identity(context)}/viewer.html"
+        context = launch(playwright, chromium, args.extension.resolve(strict=True), work / "profile")
+        location = f"chrome-extension://{extension_identity(context)}/viewer.html"
         try:
             context.set_offline(True)
             requests = []

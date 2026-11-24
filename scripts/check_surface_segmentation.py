@@ -182,12 +182,9 @@ def run_checks(args, report, extension, pdf, image_pdf):
     chromium = {'executable_path': args.chromium} if args.chromium else {'channel': 'chromium'}
     results = {}
     with sync_playwright() as playwright:
-        for mode in ('standalone', 'extension', 'webgl-unavailable'):
-            flags = ['--enable-unsafe-swiftshader']
-            if mode == 'extension':
-                flags += [f'--disable-extensions-except={extension}', f'--load-extension={extension}']
-            if mode == 'webgl-unavailable':
-                flags = ['--disable-webgl']
+        for mode in ('extension', 'webgl-unavailable'):
+            flags = [f'--disable-extensions-except={extension}', f'--load-extension={extension}']
+            flags.append('--disable-webgl' if mode == 'webgl-unavailable' else '--enable-unsafe-swiftshader')
             with tempfile.TemporaryDirectory(dir=report, prefix='profile-') as profile:
                 context = playwright.chromium.launch_persistent_context(
                     profile, headless=True, accept_downloads=True, downloads_path=profile, args=flags,
@@ -200,8 +197,7 @@ def run_checks(args, report, extension, pdf, image_pdf):
                                if request.url.startswith(('http:', 'https:')) else None)
                     page = context.pages[0]
                     page.on('pageerror', lambda error: errors.append(str(error)))
-                    address = (f'chrome-extension://{extension_identity(context)}/viewer.html'
-                               if mode == 'extension' else args.viewer.resolve().as_uri())
+                    address = f'chrome-extension://{extension_identity(context)}/viewer.html'
                     page.goto(address)
                     assert page.evaluate(WEBGL2_SUPPORTED) == (mode != 'webgl-unavailable'), 'Unexpected WebGL support'
                     open_archive(page, pdf)
@@ -223,7 +219,6 @@ def main():
                         help=f'Mesh DICOM source for recovery checks. Defaults to {MESH_FIXTURE}.')
     parser.add_argument('--image-pdf', type=Path,
                         help=f'Existing image archive. By default Maven creates it from {IMAGE_FIXTURE}.')
-    parser.add_argument('--viewer', type=Path, default=Path('src/main/resources/viewer.html'))
     parser.add_argument('--extension', type=Path, default=Path('target/chrome-extension'))
     parser.add_argument('--chromium', help='Browser executable. Defaults to Playwright Chromium.')
     parser.add_argument('--report', type=Path, default=Path('target/surface-segmentation-checks'))

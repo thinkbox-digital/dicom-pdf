@@ -22,7 +22,7 @@ and `target/pdf-security/surefire-reports/`.
 The PDF/A conformance tests require a veraPDF CLI. Enable them with
 `mvn test -Ddicompdf.test.verapdf=/path/to/verapdf`.
 
-## Offline viewer and Chrome extension
+## Chrome extension
 
 Use Node.js 24 and npm.
 
@@ -38,12 +38,12 @@ from Chrome's PDF viewer.
 
 The Chromium check uses the same Java 21 and Maven setup to convert checked-in
 synthetic DICOM fixtures to PDFs under `target/`. It checks rotation, pan, zoom
-and reset in the standalone viewer and unpacked extension, along with the PDF
+and reset in the unpacked extension, along with the PDF
 reference tab, byte-exact recovery and the WebGL-unavailable message.
 
 Run the viewer build in a disposable checkout if you want to keep your working
-copy's viewer version. The build advances the standalone viewer and extension
-versions together. After `npm ci --prefix viewer`, run:
+copy's extension version. The build advances the extension's minor version.
+After `npm ci --prefix viewer`, run:
 
 ```sh
 npm --prefix viewer run build

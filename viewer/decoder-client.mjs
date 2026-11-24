@@ -34,13 +34,6 @@ function defaultWorkerFactory(){
     const base=typeof document!=='undefined'?document.baseURI:globalThis.location?.href;
     return {worker:new Worker(new URL(DICOM_WORKER_URL,base).href,{type:'module'})};
   }
-  if(typeof DICOM_WORKER_SOURCE==='string'&&DICOM_WORKER_SOURCE){
-    const url=URL.createObjectURL(new Blob([DICOM_WORKER_SOURCE],{type:'text/javascript'}));
-    // The bundled source is an IIFE with no imports. Chromium145 rejects module
-    // Blob Workers from file: documents; a classic Worker works directly on disk.
-    try{return {worker:new Worker(url,{type:'classic'}),dispose:()=>URL.revokeObjectURL(url)};}
-    catch(error){URL.revokeObjectURL(url);throw error;}
-  }
   throw new DecoderError('DECODER_UNAVAILABLE');
 }
 function previewRecipe(entry){

@@ -103,11 +103,9 @@ def main():
         context.set_offline(True)
         try:
             identity=extension_identity(context);viewer=f'chrome-extension://{identity}/viewer.html'
-            locations={'extension':viewer,'standalone':Path('src/main/resources/viewer.html').resolve().as_uri()}
-            for name,location in locations.items():
-                destination=report/name;destination.mkdir(exist_ok=True)
-                result[name]=check_viewer(context,location,args.pdf,bad_pdf,ordinary_pdf,zip_input,destination)
-                print(f'{name}: viewer drop and loading checks passed',flush=True)
+            destination=report/'extension';destination.mkdir(exist_ok=True)
+            result['extension']=check_viewer(context,viewer,args.pdf,bad_pdf,ordinary_pdf,zip_input,destination)
+            print('Extension viewer drop and loading checks passed',flush=True)
             worker=context.service_workers[0]
             # Create an ordinary browser window without involving the viewer.
             with context.expect_page() as opened:

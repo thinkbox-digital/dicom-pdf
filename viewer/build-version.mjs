@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Plan a minor-version update before building either artifact. */
+/** Plan a minor-version update before building the extension. */
 export function planViewerVersion(directory){
   const read=name=>JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
   const pkg=read('package.json'),lock=read('package-lock.json'),manifest=read('extension/manifest.json');
@@ -18,8 +18,7 @@ export function planViewerVersion(directory){
     const filename=path.resolve(directory,name);if(!fs.existsSync(filename))continue;
     const text=fs.readFileSync(filename,'utf8')
       .replace(/dicom-pdf-chrome-\d+\.\d+\.\d+\.zip/g,`dicom-pdf-chrome-${version}.zip`)
-      .replace(/^(# Offline attachment viewer — |# DICOM PDF Viewer — Chrome extension |DICOM offline viewer )\d+\.\d+\.\d+/m,(_,prefix)=>prefix+version)
-      .replace(/(embeds viewer `)\d+\.\d+\.\d+(?=` in new archives\.)/,(_,prefix)=>prefix+version);
+      .replace(/^(# Chrome extension viewer — |# DICOM PDF Viewer — Chrome extension |DICOM offline viewer )\d+\.\d+\.\d+/m,(_,prefix)=>prefix+version);
     files.set(filename,text);
   }
   return {version,files};

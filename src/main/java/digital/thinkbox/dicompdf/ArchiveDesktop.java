@@ -423,7 +423,7 @@ public final class ArchiveDesktop {
         a TSA URL and independently trusted TSA certificates. Missing settings
         or timestamp failure stop creation. A policy requiring timestamps cannot
         be silently downgraded by unchecking the option.
-        The offline viewer checks file hashes and supported archive signatures.
+        The DICOM desktop viewer checks file hashes and supported archive signatures.
         Use Validate with a trust configuration for the desktop verification report.
         No private key is embedded. See docs/SECURITY.md for configuration examples.
 

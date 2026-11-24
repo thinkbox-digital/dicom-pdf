@@ -33,16 +33,16 @@ final class DesktopViewerPortal {
     private DesktopViewerPortal() {}
 
     static Path choose(String parentWindow, String title, String suggestedName, String filterName, List<String> patterns) throws IOException {
-        var paths = choose(parentWindow, title, suggestedName, filterName, patterns, false);
+        var paths = choose(parentWindow, title, suggestedName, filterName, patterns, false, true);
         return paths.isEmpty() ? null : paths.getFirst();
     }
 
     static List<Path> chooseMultiple(String parentWindow, String title, String filterName, List<String> patterns) throws IOException {
-        return choose(parentWindow, title, null, filterName, patterns, true);
+        return choose(parentWindow, title, null, filterName, patterns, true, false);
     }
 
     private static List<Path> choose(String parentWindow, String title, String suggestedName, String filterName,
-                                     List<String> patterns, boolean multiple) throws IOException {
+                                     List<String> patterns, boolean multiple, boolean allFiles) throws IOException {
         var unavailable = new CompletableFuture<DBusSignal>();
         var disconnect = new IDisconnectCallback() {
             @Override
@@ -69,7 +69,7 @@ final class DesktopViewerPortal {
                         pending.computeIfAbsent(signal.getPath(), path -> new CompletableFuture<>()).complete(signal));
                  var ownerHandler = connection.addGenericSigHandler(ownerChanges, signal ->
                         unavailable.completeExceptionally(new IOException("The desktop portal closed while choosing a file.")))) {
-                var options = options(suggestedName, filterName, patterns);
+                var options = options(suggestedName, filterName, patterns, allFiles);
                 if (multiple) options.put("multiple", new Variant<>(true));
                 DBusPath request = suggestedName == null
                         ? chooser.OpenFile(parentWindow, title, options)
@@ -91,13 +91,17 @@ final class DesktopViewerPortal {
         }
     }
 
-    private static Map<String, Variant<?>> options(String suggestedName, String filterName, List<String> filters) {
+    private static Map<String, Variant<?>> options(String suggestedName, String filterName, List<String> filters,
+                                                  boolean allFiles) {
         var options = new HashMap<String, Variant<?>>();
         options.put("handle_token", new Variant<>("dicom_pdf_" + UUID.randomUUID().toString().replace("-", "")));
         options.put("modal", new Variant<>(true));
         if (suggestedName == null) {
             var patterns = filters.stream().map(pattern -> new Object[]{new UInt32(0), pattern}).toList();
-            options.put("filters", new Variant<>(List.<Object[]>of(new Object[]{filterName, patterns}), "a(sa(us))"));
+            var choices = new java.util.ArrayList<Object[]>();
+            choices.add(new Object[]{filterName, patterns});
+            if (allFiles) choices.add(new Object[]{"All files", List.<Object[]>of(new Object[]{new UInt32(0), "*"})});
+            options.put("filters", new Variant<>(choices, "a(sa(us))"));
         } else {
             options.put("current_name", new Variant<>(suggestedName));
         }

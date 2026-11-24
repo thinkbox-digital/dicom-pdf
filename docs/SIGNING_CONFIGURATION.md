@@ -248,7 +248,5 @@ These results describe different evidence and do not contradict each other.
 
 ## Viewer compatibility
 
-C2PA archives use profile 0.4.0 and require viewer 0.10.0 or later. Open older
-signed PDFs with the current standalone viewer or updated extension. The viewer
-embedded in an existing archive retains its original version; using a newer
-external viewer preserves the archive's signed bytes.
+C2PA archives use profile 0.4.0. Open signed PDFs with the current desktop
+viewer or Chrome extension to check their signatures without rewriting the archive.

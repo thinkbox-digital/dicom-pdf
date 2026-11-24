@@ -23,10 +23,10 @@ class JarPublicationTest {
 
     @Test void failureOnViewerCandidatePreservesPreviousDistribution() throws IOException {
         Path distribution = Files.createDirectory(root.resolve("dist"));
-        createDistribution(distribution, OLD, "old viewer");
+        createDistribution(distribution, OLD, "old distribution");
         Path staging = Files.createDirectory(root.resolve("staging"));
-        jar(staging.resolve(jarName(NEW, true)), DESKTOP, "new viewer");
-        jar(staging.resolve(jarName(NEW, false)), CLI, "new viewer");
+        jar(staging.resolve(jarName(NEW, true)), DESKTOP, "new distribution");
+        jar(staging.resolve(jarName(NEW, false)), CLI, "new distribution");
         Files.writeString(staging.resolve(viewerName(NEW)), "invalid JAR");
         assertThrows(IOException.class, () -> JarPublication.publish(staging, distribution, NEW));
         assertEquals(distributionNames(OLD), contents(distribution));
@@ -34,9 +34,9 @@ class JarPublicationTest {
 
     @Test void completeDistributionReplacesOldVersionsAndRefusesVersionReuse() throws IOException {
         Path distribution = Files.createDirectory(root.resolve("dist"));
-        createDistribution(distribution, OLD, "old viewer");
+        createDistribution(distribution, OLD, "old distribution");
         Path staging = Files.createDirectory(root.resolve("staging"));
-        createDistribution(staging, NEW, "new viewer");
+        createDistribution(staging, NEW, "new distribution");
         JarPublication.publish(staging, distribution, NEW);
         assertEquals(distributionNames(NEW), contents(distribution));
         for (String name : contents(distribution))
@@ -44,10 +44,21 @@ class JarPublicationTest {
         assertThrows(IOException.class, () -> JarPublication.publish(staging, distribution, NEW));
     }
 
-    private static void createDistribution(Path directory, String version, String viewer) throws IOException {
-        jar(directory.resolve(jarName(version, true)), DESKTOP, viewer);
-        jar(directory.resolve(jarName(version, false)), CLI, viewer);
-        jar(directory.resolve(viewerName(version)), VIEWER, viewer);
+    @Test void rejectsAnObsoleteBrowserViewerResource() throws IOException {
+        Path distribution = Files.createDirectory(root.resolve("dist"));
+        createDistribution(distribution, OLD, "old distribution");
+        Path staging = Files.createDirectory(root.resolve("staging"));
+        createDistribution(staging, NEW, "new distribution");
+        jar(staging.resolve(jarName(NEW, true)), DESKTOP, "new distribution", "viewer.html");
+        var failure = assertThrows(IOException.class, () -> JarPublication.publish(staging, distribution, NEW));
+        assertTrue(failure.getMessage().contains("Unexpected standalone browser viewer"));
+        assertEquals(distributionNames(OLD), contents(distribution));
+    }
+
+    private static void createDistribution(Path directory, String version, String content) throws IOException {
+        jar(directory.resolve(jarName(version, true)), DESKTOP, content);
+        jar(directory.resolve(jarName(version, false)), CLI, content);
+        jar(directory.resolve(viewerName(version)), VIEWER, content);
     }
 
     private static String viewerName(String version) { return "dicom-pdf-" + version + "-viewer.jar"; }
@@ -66,7 +77,7 @@ class JarPublicationTest {
         }
     }
 
-    private static void jar(Path destination, String mainClass, String viewer) throws IOException {
+    private static void jar(Path destination, String mainClass, String content, String... extraEntries) throws IOException {
         var manifest = new Manifest();
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         manifest.getMainAttributes().put(Attributes.Name.MAIN_CLASS, mainClass);
@@ -79,10 +90,11 @@ class JarPublicationTest {
                                 "digital/thinkbox/dicompdf/DesktopViewerReportText.class"));
                 for (String platform : List.of("linux", "linux-aarch64", "mac", "mac-aarch64", "win"))
                         entries.add("META-INF/dicom-pdf/javafx/" + platform + ".jar");
-            } else entries.add("viewer.html");
+            }
+            entries.addAll(List.of(extraEntries));
             for (String entry : entries) {
                 output.putNextEntry(new JarEntry(entry));
-                output.write(viewer.getBytes(StandardCharsets.UTF_8));
+                output.write(content.getBytes(StandardCharsets.UTF_8));
                 output.closeEntry();
             }
         }

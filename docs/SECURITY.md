@@ -412,7 +412,7 @@ signature-malleability defect tracked as CVE-2020-36843.
 The viewer pins fflate 0.8.3, the latest published release as of 2026-11-20.
 [CVE-2026-122146](https://www.cve.org/CVERecord?id=CVE-2026-122146) describes
 uncontrolled memory allocation in `unzipSync`. The package-level Qodana finding
-remains open. Both browser builds omit `unzipSync`. The ZIP ingestion module
+remains open. The Chrome extension omits `unzipSync`. The ZIP ingestion module
 checks the central directory, compression ratio and byte limits before
 allocating an entry, then uses the streaming `Inflate` API. Its regression
 tests verify rejection before a large allocation. The recovery ZIP tests use
@@ -468,7 +468,7 @@ for timestamp verification. With online checks off, you can also add any
 independently trusted timestamp CA certificate from a file.
 
 IT deployments can preconfigure roots and approve their own signing CA
-download sites when building the standalone viewer and extension. Each site
+download sites when building the Chrome extension. Each site
 must be an exact HTTPS origin. The defaults allow DigiCert certificate sites.
 
 ```bash
@@ -476,9 +476,8 @@ DICOM_SIGNING_CA_ORIGINS=https://pki.example.org npm --prefix viewer run build
 DICOM_VIEWER_TRUST_PEM=/absolute/path/to/viewer-roots.pem npm --prefix viewer run build
 ```
 
-Standalone browser downloads require the certificate server to allow
-cross-origin requests. In Chrome, **Allow certificate site** can grant the
-extension temporary access to the approved site when needed. A session
+In Chrome, **Allow certificate site** can grant the extension temporary access
+to the approved site when needed. A session
 selection takes precedence over build roots, and clearing it restores the
 build’s trust policy. Use a viewer distributed by a trusted party for
 independent verification.
@@ -489,8 +488,7 @@ and a bounded subset of X.509, CMS, CRL/OCSP and COSE. Use the desktop validator
 or `verify-security` for PDF/A, broader evidence handling and independent policy
 options. C2PA public trust-list validation, acquisition authenticity and clinical
 completeness are outside the browser report’s scope. Opening another PDF cancels
-the previous report. Updating the extension or standalone viewer works with
-existing archives, which retain the viewer they originally embedded.
+the previous report. The current extension works with existing archives.
 
 ## C2PA Content Credentials
 

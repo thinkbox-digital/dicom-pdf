@@ -5,10 +5,6 @@ function failure(){return new Error('The file check could not finish. Try again 
 function factory(){
   if(typeof Worker!=='function')throw failure();
   if(typeof ARCHIVE_CHECK_WORKER_URL==='string')return {worker:new Worker(new URL(ARCHIVE_CHECK_WORKER_URL,document.baseURI),{type:'module'})};
-  if(typeof ARCHIVE_CHECK_WORKER_SOURCE==='string'){
-    const url=URL.createObjectURL(new Blob([ARCHIVE_CHECK_WORKER_SOURCE],{type:'text/javascript'}));
-    try{return {worker:new Worker(url),dispose:()=>URL.revokeObjectURL(url)};}catch(error){URL.revokeObjectURL(url);throw error;}
-  }
   throw failure();
 }
 export function createArchiveVerifier({workerFactory=factory}={}){

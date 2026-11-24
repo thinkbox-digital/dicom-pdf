@@ -2,8 +2,8 @@
 
 Use the desktop app to create and check PDF archives of medical imaging records.
 The PDF keeps the supplied files unchanged and adds readable reference pages.
-Use an ordinary PDF reader for the pages, or the offline viewer to browse images
-and reports.
+Use an ordinary PDF reader for the pages, or the desktop viewer or Chrome
+extension to browse images and reports.
 
 - [Open the desktop app](#desktop-creator-and-validator)
 - [Create an archive](#create-an-archive)
@@ -195,38 +195,47 @@ still report a problem. No result proves clinical completeness.
 ## View images and reports
 
 The creator's **Open PDF** uses your usual PDF reader. For interactive DICOM
-viewing, use the Java desktop viewer or Chrome extension, or save the attached
-`viewer.html` and open it in a browser.
+viewing, use the Java desktop viewer or Chrome extension.
 
 ### Desktop DICOM viewer
 
-Launch the standalone JavaFX viewer JAR with Java 21:
+Launch the standalone JavaFX viewer JAR with Java 21.
 
 ```sh
 java -jar dist/dicom-pdf-*-viewer.jar
 java -jar dist/dicom-pdf-*-viewer.jar out/study.pdf
+java -jar dist/dicom-pdf-*-viewer.jar in/image.dcm
 ```
 
-Use **Open PDF…**, Ctrl+O (Command+O on macOS), or drop an archive onto the
-window. On Linux, Open and Save use the desktop portal when available.
+Use **Open File…**, Ctrl+O (Command+O on macOS), or drop a DICOM file or DICOM
+PDF archive onto the window. The file picker lists PDFs and common DICOM
+extensions. Choose **All files** for a DICOM file with a different name or no
+extension. On Linux, Open and Save use the desktop portal when available.
+
+An open DICOM file has the normal image controls and **Selected file metadata…**.
+The PDF reference and archive security controls appear when you open an archive.
+
 **Data** shows exam details and series cards, with an exam picker for multiple
 exams. Drag the dividers to resize the side panes. After collapsing a pane,
 click **›** at the upper-left edge of the viewing area to reopen **Data**, or
-**‹** at the upper-right edge to reopen **Metadata**. Use the center pane to
-view originals and PDF reference pages. The DICOM filename is beside the view tabs.
+**‹** at the upper-right edge to reopen **Metadata**. The DICOM filename is
+beside the view tabs.
 When you scroll, the current image stays visible until the next one is ready.
 **Info** shows the supplied series and study context, stack position,
 orientation, window values and zoom when available. The **Metadata** pane
-scrolls as one list. Its view and download buttons open or save attachments.
-**Export metadata…** offers selected or all images and fields, a spreadsheet
-or detailed tag CSV, and the PDF's document XMP. Security verification starts
-in the background when the first image or PDF page appears. Select the archive
-filename to open the report, add a trusted CA, or save the results as JSON.
+scrolls as one list. In an archive, its view and download buttons open or save
+attachments, and **Export metadata…** offers selected or all images and fields,
+a spreadsheet or detailed tag CSV, and the PDF's document XMP. Security
+verification starts in the background when the first archive image or PDF
+page appears. Select the archive filename to open the report, add a trusted
+CA, or save the results as JSON.
 The archive filename turns green for passed checks, red for failed checks,
 or amber for incomplete checks. Press Esc to close the report.
-**Save** exports original files, ZIPs and adjusted image copies.
+**Save** exports adjusted image copies. For archives it also exports original
+files and ZIPs.
 
-The Java viewer checks an original's recorded SHA-256 before displaying it.
+For images from an archive, the Java viewer checks the recorded SHA-256 before
+displaying the original.
 The PDF reference tab remains available when the Java decoder cannot display an
 original, including JPEG 2000 files whose codestream precision conflicts with
 the declared Bits Stored. The browser viewer also has additional attachment
@@ -252,7 +261,7 @@ CA checkbox controls the public timestamp CA sources used in verification.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.87.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.88.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
@@ -264,19 +273,18 @@ If an update appears to have no effect, compare it with the **DICOM PDF Viewer**
 version on `chrome://extensions`, close existing viewer tabs and open the PDF again.
 The current unpacked extension is in `target/chrome-extension`; an extension
 installed from a separately extracted older ZIP keeps that older code.
-Restart the creator after updating its JAR so newly created PDFs embed the new
-viewer. Existing PDFs keep their attached viewer; the current extension can open
-them without rewriting the archive.
-
-See the [extension instructions](../viewer/extension/README.md) for installation
-and access details. An older viewer embedded in a PDF keeps its original version;
-use the current extension to view it without changing the PDF.
+The current extension opens older archives, including PDFs with a legacy embedded
+viewer. See the [extension instructions](../viewer/extension/README.md) for
+installation and access details.
 
 ### Choose records
 
 Use the left **Data** pane to select images, series and reports. **Choose an exam**
-appears when the supplied records identify multiple exams. The right **Metadata**
-pane shows file information, other supplied files and references.
+appears when the supplied records identify multiple exams. **Other supplied files**
+appears in the right **Metadata** pane when the archive has originals outside the
+data list. Open **Selected file metadata** to follow links to uniquely resolved
+files in the archive. **Inventory → Reference details…** shows the recorded
+reference statuses and target IDs across the archive.
 
 Switch between **DICOM image** and **PDF reference** to explore the source image
 or read its archive page. The PDF reference keeps its original baseline frame.
@@ -483,7 +491,7 @@ expansion must fit available memory; archive safety limits also apply.
 | A timestamp request fails | Check the service address and connection named in the error. See [timestamp troubleshooting](SIGNING_CONFIGURATION.md#timestamp-connection-failures). |
 | PDF/A conformance is not checked | Check that the local veraPDF installation is available. |
 | The viewer cannot display a file | Save its unchanged original and open it with a suitable application. |
-| An older PDF fails to open in its embedded viewer | Use the current extension or standalone viewer. |
+| An older PDF fails to open in its embedded viewer | Use the current desktop viewer or Chrome extension. |
 | A missing-class error appears after a rebuild | Close the desktop and launch the current JAR again. |
 
 ## Building from source
@@ -516,18 +524,17 @@ mvn "-Ddicompdf.test.verapdf=$VERAPDF" verify
 python3 scripts/check_desktop_distribution.py --verapdf "$VERAPDF"
 ```
 
-Browser viewer builds need Node/npm and Python 3:
+Chrome extension builds need Node.js and npm:
 
 ```sh
 npm ci --prefix viewer
 npm --prefix viewer run build
 ```
 
-That viewer command stages the standalone viewer and extension together before
-publishing the pair and advancing their minor version. GitHub runs both version
-updaters after each branch push, verifies the runnable JARs, and commits the
-updated versions and standalone viewer back to the branch. Download the
-JARs, standalone viewer, extension ZIP and SHA-256 checksums from the workflow
+The build packages the extension and advances its minor version. GitHub runs
+both version updaters after each branch push, verifies the runnable JARs, and
+commits the updated versions back to the branch. Download the JARs, extension ZIP
+and SHA-256 checksums from the workflow
 run's artifacts. Pull the automated commit with `git pull --rebase` before
 pushing again. Branch rules must allow GitHub Actions to write that commit.
 

@@ -62,7 +62,7 @@ def check_viewer(java, version, work, creator_class):
         assert 'Main-Class: digital.thinkbox.dicompdf.DesktopViewerLauncher' in manifest
         assert creator_class + '.class' not in names
         assert 'digital/thinkbox/dicompdf/Main.class' not in names
-        assert 'viewer.html' not in names
+        assert 'viewer.html' not in names, f'{source} contains the standalone browser viewer'
         for required in ['digital/thinkbox/dicompdf/DesktopViewer.class', 'desktop-viewer.css',
                          'javafx/scene/control/Button.class', 'icons/icon-128.png',
                          'org/freedesktop/dbus/connections/impl/DBusConnectionBuilder.class',
@@ -79,16 +79,16 @@ def check_viewer(java, version, work, creator_class):
     shutil.copyfile(source, jar_path)
     command = [java, '-Djava.awt.headless=true', '-jar', str(jar_path)]
     help_result = subprocess.run([*command, '--help'], cwd=isolated, capture_output=True, text=True, timeout=30)
-    assert help_result.returncode == 0 and source.name + ' [archive.pdf]' in help_result.stdout, help_result
+    assert help_result.returncode == 0 and source.name + ' [archive.pdf | dicom-file]' in help_result.stdout, help_result
     headless = subprocess.run(command, cwd=isolated, capture_output=True, text=True, timeout=30)
     assert headless.returncode == 1 and 'needs a graphical desktop' in headless.stderr, headless
     return {'jar': str(source), 'bytes': source.stat().st_size,
-            'standaloneLaunch': True, 'javafxPlatformsBundled': True, 'passed': True}
+            'standaloneLaunch': True, 'javafxPlatformsBundled': True, 'browserViewerAbsent': True, 'passed': True}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--version', default='0.62.0')
+    parser.add_argument('--version', default='0.63.0')
     parser.add_argument('--verapdf', default=os.environ.get('VERAPDF'),
                         help='validate PDF/A-4f and verify byte-exact round trip using this executable')
     args = parser.parse_args()
@@ -96,7 +96,6 @@ def main():
     assert java, 'Java 21 must be on PATH'
     report = Path('target/desktop-distribution-checks')
     report.mkdir(parents=True, exist_ok=True)
-    standalone_viewer = Path('src/main/resources/viewer.html').read_bytes()
     result = {}
     gui = 'digital/thinkbox/dicompdf/ArchiveDesktop'
     with tempfile.TemporaryDirectory(dir=report, prefix='isolated-') as temporary:
@@ -105,7 +104,7 @@ def main():
             source = Path('dist') / f'dicom-pdf-{args.version}{"-desktop" if kind == "desktop" else ""}.jar'
             with ZipFile(source) as jar:
                 names = set(jar.namelist())
-                assert jar.read('viewer.html') == standalone_viewer, f'{source} embeds a different viewer than src/main/resources/viewer.html'
+                assert 'viewer.html' not in names, f'{source} contains the standalone browser viewer'
                 assert not any(name.startswith('net/i2p/crypto/eddsa/') for name in names), 'Excluded vulnerable EdDSA provider was repackaged'
                 assert not any(name.startswith('digital/thinkbox/pdfsecurity/testing/') for name in names), 'Synthetic signing fixtures must not be shipped'
                 assert not any(name.startswith('digital/thinkbox/dicompdf/security/') for name in names), 'Legacy security classes must not be repackaged'
@@ -179,7 +178,7 @@ def main():
                 assert 'Advanced signing JSON prepared' in preparation.stdout
             result[kind] = {'jar': str(source), 'bytes': source.stat().st_size,
                             'standaloneLaunch': True, 'compressedReferences': len(codec_fixtures),
-                            'noticesPresent': True, 'embeddedViewerMatchesStandalone': True, 'passed': True}
+                            'noticesPresent': True, 'browserViewerAbsent': True, 'passed': True}
             if args.verapdf:
                 result[kind].update(pdfa4f=True, recoveredBytesMatch=True)
             result[kind]['paintedReference'] = check_painted_reference(java, destination, isolated)

@@ -201,21 +201,23 @@ test('unavailable workers fail explicitly and never decode on the UI thread',asy
   finally{client.destroy();}
 });
 
-test('the self-contained standalone bundle uses a classic Blob Worker for file compatibility',async()=>{
-  const originalWorker=globalThis.Worker,originalSource=globalThis.DICOM_WORKER_SOURCE,created=[];
-  globalThis.DICOM_WORKER_SOURCE='/* fixed local bundled IIFE */';
+test('the extension loads the packaged module worker',async()=>{
+  const originalWorker=globalThis.Worker,originalSource=globalThis.DICOM_WORKER_URL,originalDocument=globalThis.document,created=[];
+  globalThis.DICOM_WORKER_URL='dicom.worker.mjs';
+  globalThis.document={baseURI:'chrome-extension://viewer/viewer.html'};
   globalThis.Worker=class extends ProtocolWorker{
     constructor(url,options){super();created.push({url,options});}
   };
   const client=createDecoderClient(),bytes=new Uint8Array([17]);
   try{
-    const image=await client.decode(bytes,'disk-viewer',null,1,{key:await sha(bytes)});
-    assert.equal(image.image.imageId,'disk-viewer');assert.equal(created.length,1);
-    assert.ok(created[0].url.startsWith('blob:'));assert.equal(created[0].options.type,'classic');
+    const image=await client.decode(bytes,'extension-viewer',null,1,{key:await sha(bytes)});
+    assert.equal(image.image.imageId,'extension-viewer');assert.equal(created.length,1);
+    assert.equal(created[0].url,'chrome-extension://viewer/dicom.worker.mjs');assert.equal(created[0].options.type,'module');
   }finally{
     client.destroy();
     if(originalWorker===undefined)delete globalThis.Worker;else globalThis.Worker=originalWorker;
-    if(originalSource===undefined)delete globalThis.DICOM_WORKER_SOURCE;else globalThis.DICOM_WORKER_SOURCE=originalSource;
+    if(originalSource===undefined)delete globalThis.DICOM_WORKER_URL;else globalThis.DICOM_WORKER_URL=originalSource;
+    if(originalDocument===undefined)delete globalThis.document;else globalThis.document=originalDocument;
   }
 });
 

@@ -20,6 +20,9 @@
     -fx-border-radius: 5px;
     -fx-padding: 6px 10px;
 }
+/* The toolbar button supplies vertical padding for both menu-button children. */
+.header > .menu-button > .label { -fx-padding: 0 0.666667em; }
+.header > .menu-button > .arrow-button { -fx-padding: 0 0.667em 0 0; }
 .button:hover, .menu-button:hover, .toggle-button:hover, .toggle-button:selected {
     -fx-background-color: #e8f0fc;
     -fx-border-color: #8eb0dd;
@@ -80,6 +83,7 @@
     -fx-font-weight: bold;
     -fx-alignment: center-left;
 }
+.metadata-section > .title { -fx-background-color: #f8fafd; }
 .metadata-open:hover, .metadata-section > .title:hover {
     -fx-background-color: #e8eef7;
     -fx-border-color: transparent transparent #dbe3ed transparent;

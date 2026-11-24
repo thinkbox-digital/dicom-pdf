@@ -195,7 +195,6 @@ def main():
     parser.add_argument('--source',type=Path,default=Path('target/full-xmp-input/metadata.dcm'))
     parser.add_argument('--legacy',type=Path,default=Path('target/viewer-test-pdfs/metadata-sample.pdf'))
     parser.add_argument('--extension',type=Path,default=Path('target/chrome-extension'))
-    parser.add_argument('--standalone',type=Path,default=Path('src/main/resources/viewer.html'))
     parser.add_argument('--chromium',default='/snap/chromium/current/usr/lib/chromium-browser/chrome')
     args=parser.parse_args();project=Path(__file__).resolve().parents[1]
     report=project/'target/xmp-export-checks';work_path(report,'.');report.mkdir(parents=True,exist_ok=True)
@@ -218,7 +217,7 @@ def main():
         variants[kind]=report/(kind+'.pdf');variant(args.pdf,variants[kind],kind)
     _,legacy_manifest,legacy_metadata,legacy_packet,legacy_originals=pdf_inventory(args.legacy)
     assert not legacy_manifest.get('metadataXmpVersion') and 'metadataJson' not in properties(legacy_packet)
-    extension=args.extension.resolve(strict=True);asset=fingerprint(extension/'viewer.js');standalone=fingerprint(args.standalone)
+    extension=args.extension.resolve(strict=True);asset=fingerprint(extension/'viewer.js')
     source_before=fingerprint(args.source);pdf_before=fingerprint(args.pdf)
     result={'syntheticFixture':True,'inventoryElements':len(elements),'categoryCounts':categories,'metadataSha256':sha(sidecar),
             'viewerSha256':asset,'httpRequests':0,'pageErrors':0,'cases':[]}
@@ -233,8 +232,7 @@ def main():
                 ('xmp-without-sidecar',variants['no-sidecar'],manifest,metadata,originals,golden,True,False,location),
                 ('invalid-digest',variants['bad-digest'],manifest,metadata,originals,None,True,True,location),
                 ('missing-required-full',variants['missing-full'],manifest,metadata,originals,None,True,True,location),
-                ('legacy-fallback',args.legacy,legacy_manifest,legacy_metadata,legacy_originals,None,False,False,location),
-                ('standalone-full-xmp',args.pdf,manifest,metadata,originals,golden,True,False,args.standalone.resolve().as_uri())]
+                ('legacy-fallback',args.legacy,legacy_manifest,legacy_metadata,legacy_originals,None,False,False,location)]
             for label,path,m,d,o,g,full,invalid,url in cases:
                 try:result['cases'].append(run_case(context,url,label,path,m,d,o,g,report,full,invalid))
                 except Exception as error:result['cases'].append({'case':label,'status':'FAIL','errorType':type(error).__name__,
@@ -243,7 +241,7 @@ def main():
                 print(json.dumps({'completedCases':len(result['cases']),'passedCases':sum(case['status']=='PASS' for case in result['cases'])}),flush=True)
         finally:context.close()
     result['sourceUnchanged']=fingerprint(args.source)==source_before;result['pdfUnchanged']=fingerprint(args.pdf)==pdf_before
-    result['assetsUnchanged']=fingerprint(extension/'viewer.js')==asset and fingerprint(args.standalone)==standalone
+    result['assetsUnchanged']=fingerprint(extension/'viewer.js')==asset
     result['status']='PASS' if all(case['status']=='PASS' for case in result['cases']) and result['sourceUnchanged'] and result['pdfUnchanged'] and result['assetsUnchanged'] and not result['httpRequests'] and not result['pageErrors'] else 'FAIL'
     (report/'summary.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps({key:result[key] for key in ['status','inventoryElements','categoryCounts','metadataSha256','sourceUnchanged','pdfUnchanged','assetsUnchanged','httpRequests','pageErrors']}))

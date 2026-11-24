@@ -28,7 +28,7 @@ jobs:
       - run: mvn --batch-mode --no-transfer-progress "-Ddicompdf.test.verapdf=$VERAPDF" test
 
   viewer:
-    name: Viewer and Chrome extension tests
+    name: Chrome extension tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -50,7 +50,7 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: scripts/requirements.txt
-      - name: Build and check viewer and Chrome extension
+      - name: Build and check the Chrome extension
         run: bash .github/scripts/check-viewer.sh
 
   python:

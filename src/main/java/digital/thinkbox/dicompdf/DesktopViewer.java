@@ -5,10 +5,13 @@ import static digital.thinkbox.dicompdf.DesktopViewerDocument.number;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.StringJoiner;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -43,6 +46,9 @@ import javax.imageio.ImageIO;
 
 public final class DesktopViewer extends Application {
     private static final boolean LINUX = System.getProperty("os.name").equals("Linux");
+    private static final String OPEN_FILTER = "DICOM and PDF files";
+    private static final List<String> OPEN_PATTERNS =
+            List.of("*.dcm", "*.DCM", "*.dicom", "*.DICOM", "*.ima", "*.IMA", "*.dic", "*.DIC", "*.pdf", "*.PDF");
     private enum ZipScope { SELECTED, SERIES, EXAM, ALL }
     private record Series(String modality, String description, String number, List<Manifest.Image> entries) {
         String summary() {
@@ -72,21 +78,25 @@ public final class DesktopViewer extends Application {
     private final ListView<Series> series = new ListView<>(visibleSeries);
     private final Label studySummary = detailText("");
     private final Map<Series, javafx.beans.property.ObjectProperty<Image>> seriesThumbnails = new LinkedHashMap<>();
-    private final Label count = new Label("Data  0"), status = new Label("Open a PDF to view its unchanged DICOM attachments.");
+    private final Label count = new Label("Data  0"), status = new Label("Open a DICOM file or a DICOM PDF archive.");
+    private final TextField seriesSearch = new TextField();
     private final Label profile = new Label("DICOM image profile");
-    private final Button filename = new Button("No PDF open");
+    private final Button filename = new Button();
+    private final Label localFilename = new Label("No file open");
+    private final javafx.beans.property.BooleanProperty archiveMode = new javafx.beans.property.SimpleBooleanProperty();
+    private final javafx.beans.property.BooleanProperty documentLoaded = new javafx.beans.property.SimpleBooleanProperty();
     private final Button metadataButton = new Button("Selected file metadata…");
     private final Button restoreData = new Button("›"), restoreDetails = new Button("‹");
     private final TabPane modes = new TabPane();
     private final Tab imageTab = new Tab("DICOM image"), pdfTab = new Tab("PDF reference"), specialTab = new Tab();
     private final Label sourceName = styled(new Label(), "source-name");
     private final Tab sourceNameTab = new Tab();
-    private final VBox technical = new VBox(5);
-    private final Label technicalCount = styled(new Label("0"), "file-count");
     private final VBox supporting = new VBox(5);
     private final Label supportingCount = styled(new Label("0"), "file-count");
+    private final TitledPane supportingFiles = fileDisclosure("Other supplied files", supporting, supportingCount);
     private final Label inventory = new Label("Open a PDF to inspect its supplied files.");
-    private final VBox references = new VBox(5);
+    private final Button referenceDetails = button("Reference details…", this::showReferenceDetails);
+    private final VBox archiveDetails = new VBox();
     private final Label pageCount = new Label("of 0");
     private final Spinner<Integer> pageNumber = new Spinner<>(1, 1, 1);
     private final ImageView reference = new ImageView();
@@ -136,7 +146,7 @@ public final class DesktopViewer extends Application {
         start(window, arguments.isEmpty() ? null : Path.of(arguments.getFirst()));
     }
 
-    void start(Stage window, Path archive) {
+    void start(Stage window, Path file) {
         stage = window;
         var icon = new Image(Objects.requireNonNull(DesktopViewer.class.getResource("/icons/icon-128.png"),
                 "Missing desktop viewer icon").toExternalForm());
@@ -146,26 +156,37 @@ public final class DesktopViewer extends Application {
         var mark = new ImageView(icon);
         mark.setFitWidth(31);
         mark.setFitHeight(31);
-        var name = styled(new Label("DICOM PDF Viewer"), "brand");
-        var open = styled(button("Open PDF…", this::chooseArchive), "primary");
+        var name = styled(new Label(), "brand");
+        name.textProperty().bind(javafx.beans.binding.Bindings.when(archiveMode).then("DICOM PDF Viewer").otherwise("DICOM Viewer"));
+        var open = styled(button("Open File…", this::chooseFile), "primary");
         filename.setOnAction(event -> verify());
-        filename.disableProperty().bind(pdfTab.disableProperty());
+        filename.disableProperty().bind(documentLoaded.not());
         HBox.setHgrow(filename, Priority.ALWAYS);
         filename.setMaxWidth(Double.MAX_VALUE);
         filename.setMinWidth(0);
         filename.getStyleClass().add("document-name");
+        HBox.setHgrow(localFilename, Priority.ALWAYS);
+        localFilename.setMaxWidth(Double.MAX_VALUE);
+        localFilename.setMinWidth(0);
+        localFilename.visibleProperty().bind(archiveMode.not());
+        localFilename.managedProperty().bind(localFilename.visibleProperty());
         var originalsZip = new Menu("Originals ZIP");
         originalsZip.getItems().setAll(item("Selected file…", () -> saveZip(ZipScope.SELECTED)),
                 item("Current series…", () -> saveZip(ZipScope.SERIES)), item("Current exam…", () -> saveZip(ZipScope.EXAM)),
                 item("All supplied files…", () -> saveZip(ZipScope.ALL)));
-        var save = new MenuButton("Save", null, item("Original file", this::saveOriginal),
-                originalsZip, item("Image copy (PNG)", this::saveImage));
-        save.disableProperty().bind(pdfTab.disableProperty());
+        var original = item("Original file", this::saveOriginal);
+        original.visibleProperty().bind(archiveMode);
+        originalsZip.visibleProperty().bind(archiveMode);
+        var save = new MenuButton("Save", null, original, originalsZip, item("Image copy (PNG)", this::saveImage));
+        save.disableProperty().bind(documentLoaded.not());
         var csv = button("Export metadata…", this::exportMetadata);
-        csv.disableProperty().bind(pdfTab.disableProperty());
         var offline = styled(new Label("Offline"), "offline");
         offline.setGraphic(styled(new javafx.scene.shape.Circle(4), "offline-dot"));
-        root.setTop(row("header", mark, name, open, filename, offline, save, csv));
+        for (var archiveControl : List.of(filename, offline, csv, profile, archiveDetails)) {
+            archiveControl.visibleProperty().bind(archiveMode);
+            archiveControl.managedProperty().bind(archiveControl.visibleProperty());
+        }
+        root.setTop(row("header", mark, name, open, filename, localFilename, offline, save, csv));
 
         buildData();
         buildDetails();
@@ -193,7 +214,7 @@ public final class DesktopViewer extends Application {
         name.managedProperty().bind(name.visibleProperty());
         scene.getStylesheets().add(Objects.requireNonNull(DesktopViewer.class.getResource("/desktop-viewer.css"),
                 "Missing desktop viewer stylesheet").toExternalForm());
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseArchive);
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseFile);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (choosingFile || securityDialog == null || !securityDialog.isShowing()) return;
             if (event.getCode() == KeyCode.ESCAPE) {
@@ -220,7 +241,7 @@ public final class DesktopViewer extends Application {
             var files = event.getDragboard().getFiles();
             boolean opened = files.size() == 1 && files.getFirst().isFile();
             if (opened) open(files.getFirst().toPath());
-            else status.setText("Choose one converted DICOM PDF.");
+            else status.setText("Choose one DICOM file or DICOM PDF archive.");
             event.setDropCompleted(opened);
             event.consume();
         });
@@ -230,14 +251,14 @@ public final class DesktopViewer extends Application {
         window.addEventFilter(WindowEvent.WINDOW_CLOSE_REQUEST, event -> {
             if (choosingFile) event.consume();
         });
-        window.setTitle("DICOM PDF Viewer");
+        window.titleProperty().bind(name.textProperty());
         window.getIcons().add(icon);
         window.setMinWidth(740);
         window.setMinHeight(500);
         window.setScene(scene);
         window.setMaximized(true);
         window.show();
-        if (archive != null) open(archive);
+        if (file != null) open(file);
     }
 
     private void buildData() {
@@ -258,9 +279,8 @@ public final class DesktopViewer extends Application {
         });
         var examLabel = new Label("Exam");
         var seriesSummary = new StackPane();
-        var search = new TextField();
-        search.setPromptText("Find a series");
-        search.textProperty().addListener((property, before, value) -> {
+        seriesSearch.setPromptText("Find a series");
+        seriesSearch.textProperty().addListener((property, before, value) -> {
             String term = value.strip().toLowerCase(java.util.Locale.ROOT);
             visibleSeries.setPredicate(item -> (item.modality() + " " + item.description() + " " + item.number()).toLowerCase(java.util.Locale.ROOT).contains(term));
         });
@@ -271,7 +291,7 @@ public final class DesktopViewer extends Application {
                 javafx.beans.binding.Bindings.max(60, javafx.beans.binding.Bindings.size(visibleSeries).multiply(98).add(3))));
         managed(seriesSummary, false);
         managed(series, false);
-        managed(search, false);
+        managed(seriesSearch, false);
         list.setPlaceholder(new Label("No images loaded"));
         list.setCellFactory(view -> new ListCell<>() {
             @Override protected void updateItem(Manifest.Image image, boolean empty) {
@@ -281,7 +301,7 @@ public final class DesktopViewer extends Application {
         });
         study.valueProperty().addListener((value, before, current) -> {
             var stacks = current == null ? List.<Series>of() : current.series();
-            search.clear();
+            seriesSearch.clear();
             studySeries.setAll(stacks);
             studySummary.setText(current == null ? "" : current.description() + "\n" + current.facility());
             managed(studySummary, current != null);
@@ -290,7 +310,7 @@ public final class DesktopViewer extends Application {
             seriesSummary.getChildren().clear();
             if (stacks.size() == 1) seriesSummary.getChildren().add(styled(seriesCard(stacks.getFirst()), "series-single"));
             managed(series, stacks.size() > 1);
-            managed(search, stacks.size() >= 5);
+            managed(seriesSearch, stacks.size() >= 5);
             series.getSelectionModel().selectFirst();
         });
         series.getSelectionModel().selectedItemProperty().addListener((value, before, current) -> {
@@ -299,12 +319,12 @@ public final class DesktopViewer extends Application {
             list.getSelectionModel().selectFirst();
         });
         list.getSelectionModel().selectedItemProperty().addListener((value, before, current) -> {
-            if (current != null) select(current);
+            if (current != null && !updatingControls) select(current);
         });
         var hide = button("‹", () -> togglePane(data, restoreData, false));
         hide.setAccessibleText("Hide data pane");
         managed(studySummary, false);
-        data.getChildren().setAll(heading(count, hide), examPicker, studySummary, search, seriesSummary, series,
+        data.getChildren().setAll(heading(count, hide), examPicker, studySummary, seriesSearch, seriesSummary, series,
                 new Label("Images and reports"), list);
         VBox.setVgrow(list, Priority.ALWAYS);
     }
@@ -329,7 +349,7 @@ public final class DesktopViewer extends Application {
             var property = thumb;
             var current = document;
             var representative = value.entries().stream().filter(entry -> "rendered".equals(entry.status())).findFirst();
-            if (current != null && representative.isPresent()) {
+            if (current != null && current.isArchive() && representative.isPresent()) {
                 run(() -> current.thumbnail(representative.get().referencePage()), result -> {
                     if (result != null && current == document) property.set(SwingFXUtils.toFXImage(result, null));
                 });
@@ -344,8 +364,8 @@ public final class DesktopViewer extends Application {
         details.getStyleClass().add("metadata-pane");
         details.setMinWidth(230);
         details.setPrefWidth(360);
-        supporting.getChildren().setAll(detailText("No supporting source files loaded."));
-        references.getChildren().setAll(detailText("No reference inventory loaded."));
+        managed(supportingFiles, false);
+        managed(referenceDetails, false);
         inventory.setWrapText(true);
         var hide = button("›", () -> togglePane(details, restoreDetails, false));
         hide.setAccessibleText("Hide metadata pane");
@@ -355,16 +375,13 @@ public final class DesktopViewer extends Application {
         metadataButton.setGraphic(new Label("↗"));
         metadataButton.setContentDisplay(ContentDisplay.RIGHT);
         metadataButton.getStyleClass().add("metadata-open");
-        var technicalSection = fileDisclosure("Technical files", technical, technicalCount);
-        technicalSection.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(technical.getChildren()));
-        technicalSection.managedProperty().bind(technicalSection.visibleProperty());
-        var help = styled(new Label("Links in source metadata. A missing target is not a missing embedded image."), "file-facts");
-        help.setWrapText(true);
-        var sections = new VBox(metadataButton, technicalSection, fileDisclosure("Other supplied files", supporting, supportingCount),
-                disclosure("Inventory", inventory), disclosure("References", new VBox(8, help, references)));
+        var disclosures = List.of(supportingFiles, disclosure("Inventory", new VBox(8, inventory, referenceDetails)));
+        archiveDetails.getChildren().setAll(disclosures);
+        var sections = new VBox(metadataButton, archiveDetails);
         var scroll = styled(new ScrollPane(sections), "metadata-scroll");
         scroll.setFitToWidth(true);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        disclosures.forEach(section -> keepSectionHeaderVisible(section, scroll));
         VBox.setVgrow(scroll, Priority.ALWAYS);
         details.getChildren().setAll(heading(new Label("Metadata"), hide), scroll);
     }
@@ -382,8 +399,7 @@ public final class DesktopViewer extends Application {
         sourceName.maxWidthProperty().bind(Bindings.max(0, center.widthProperty().subtract(320)
                 .subtract(leftRestoreInset).subtract(rightRestoreInset)));
         sourceName.setMinWidth(0);
-        modes.getTabs().setAll(imageTab, pdfTab, sourceNameTab);
-        pdfTab.setDisable(true);
+        modes.getTabs().setAll(imageTab, sourceNameTab);
 
         info.setSelected(true);
         info.setOnAction(event -> viewport.overlay(info.isSelected()));
@@ -405,7 +421,7 @@ public final class DesktopViewer extends Application {
                 invert, button("Fit", viewport::center), info, button("Fullscreen", () -> stage.setFullScreen(!stage.isFullScreen())),
                 button("Pin for comparison", this::pin), button("Reset", this::reset));
         controls.getStyleClass().add("controls");
-        controls.disableProperty().bind(pdfTab.disableProperty());
+        controls.disableProperty().bind(documentLoaded.not());
         VBox primary = new VBox(imageArea, controls);
         VBox.setVgrow(imageArea, Priority.ALWAYS);
         HBox.setHgrow(primary, Priority.ALWAYS);
@@ -453,22 +469,19 @@ public final class DesktopViewer extends Application {
         pdfTab.setContent(pdf);
     }
 
-    private void chooseArchive() {
-        var chosen = choosePath("Open a DICOM PDF", null);
+    private void chooseFile() {
+        var chosen = choosePath("Open File", null);
         if (chosen != null) open(chosen);
     }
 
     private Path choosePath(String title, String suggestedName) {
-        return choosePath(title, suggestedName, "PDF files", List.of("*.pdf", "*.PDF"));
-    }
-
-    private Path choosePath(String title, String suggestedName, String filterName, List<String> patterns) {
-        return nativePicker(parent -> DesktopViewerPortal.choose(parent, title, suggestedName, filterName, patterns), () -> {
+        return nativePicker(parent -> DesktopViewerPortal.choose(parent, title, suggestedName, OPEN_FILTER, OPEN_PATTERNS), () -> {
             var chooser = new FileChooser();
             chooser.setTitle(title);
             File chosen;
             if (suggestedName == null) {
-                chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(filterName, patterns));
+                chooser.getExtensionFilters().setAll(new FileChooser.ExtensionFilter(OPEN_FILTER, OPEN_PATTERNS),
+                        new FileChooser.ExtensionFilter("All files", "*"));
                 chosen = chooser.showOpenDialog(pickerOwner());
             } else {
                 chooser.setInitialFileName(suggestedName);
@@ -521,7 +534,7 @@ public final class DesktopViewer extends Application {
         reader.execute(() -> {
             if (request != openRequest.get()) return;
             try {
-                var opened = new DesktopViewerDocument(path);
+                var opened = DesktopViewerDocument.open(path);
                 if (request != openRequest.get()) { close(opened); return; }
                 Platform.runLater(() -> {
                     if (request != openRequest.get()) {
@@ -549,43 +562,46 @@ public final class DesktopViewer extends Application {
         if (exportDialog != null) exportDialog.close();
         if (securityDialog != null) securityDialog.close();
         if (archiveSecurity != null) archiveSecurity.cancel();
-        updateArchiveReportStatus("");
-        archiveSecurity = new DesktopViewerSecurityReport.Session(opened, securityTrust, state -> {
-            if (document == opened) updateArchiveReportStatus(state);
-        });
+        archiveSecurity = null;
+        if (opened.isArchive()) {
+            archiveSecurity = new DesktopViewerSecurityReport.Session(opened, securityTrust, state -> {
+                if (document == opened) updateArchiveReportStatus(state);
+            });
+        }
+        displayRequest.incrementAndGet();
+        pageRequest.incrementAndGet();
+        archiveMode.set(opened.isArchive());
+        documentLoaded.set(true);
+        modes.getSelectionModel().select(imageTab);
+        modes.getTabs().setAll(opened.isArchive() ? List.of(imageTab, pdfTab, sourceNameTab) : List.of(imageTab, sourceNameTab));
+        modes.getSelectionModel().select(imageTab);
+        specialTab.setContent(null);
+        metadataBackdrop.setVisible(false);
+        metadataBackdrop.getChildren().clear();
+        root.setMouseTransparent(false);
+        reference.setImage(null);
+        if (images.getChildren().size() > 1) images.getChildren().remove(1);
+        imageArea.getChildren().setAll(viewport);
         seriesThumbnails.clear();
         study.getSelectionModel().clearSelection();
         study.setValue(null);
         list.getItems().clear();
-        displayRequest.incrementAndGet();
-        pageRequest.incrementAndGet();
+        entry = null;
+        displayPending = false;
+        updateArchiveReportStatus("");
         updateFilename(null);
         metadataButton.setDisable(true);
         shownImage = null;
-        viewport.message("Opening DICOM PDF…", opened.path.getFileName().toString());
-        profile.setText(opened.profile());
-        technical.getChildren().setAll(opened.technicalFiles().stream()
-                .map(name -> technicalFileRow(name)).toList());
-        technicalCount.setText(Integer.toString(technical.getChildren().size()));
-        var imageEntries = opened.entries.stream().filter(DesktopViewer::isDicomEntry).toList();
-        var otherFiles = opened.entries.stream().filter(image -> !isDicomEntry(image)).toList();
-        supportingCount.setText(Integer.toString(otherFiles.size()));
-        supporting.getChildren().setAll(otherFiles.stream().map(source -> fileRow(basename(source),
-                String.format("%,d bytes · %s", source.size(), source.sourcePath()),
-                () -> previewSupporting(source), () -> saveOriginal(source))).toList());
-        if (otherFiles.isEmpty()) supporting.getChildren().add(detailText("No files in this group."));
-        var byAttachment = new LinkedHashMap<String, Manifest.Image>();
-        opened.entries.forEach(source -> byAttachment.putIfAbsent(source.attachment(), source));
-        references.getChildren().setAll(opened.references().stream().map(link -> referenceRow(link, byAttachment)).toList());
-        if (opened.references().isEmpty()) references.getChildren().add(detailText("No explicit references inventoried."));
+        viewport.message("Opening file…", opened.path.getFileName().toString());
+        var imageEntries = opened.isArchive() ? opened.entries.stream().filter(DesktopViewer::isDicomEntry).toList() : opened.entries;
         count.setText("Data  " + imageEntries.size());
-        long displayed = opened.entries.stream().filter(image -> "rendered".equals(image.status())).count();
-        inventory.setText(opened.entries.size() + " supplied files\n" + opened.embeddedOriginalCount() + " embedded originals\n"
-                + displayed + " PDF previews\n\n" + otherFiles.size() + " other supplied files\n"
-                + opened.references().size() + " explicit references");
-        pdfTab.setDisable(false);
-        pageNumber.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, opened.pages(), 1));
-        pageCount.setText("of " + opened.pages());
+        if (opened.isArchive()) installArchiveDetails(opened);
+        else {
+            supporting.getChildren().clear();
+            managed(supportingFiles, false);
+            managed(referenceDetails, false);
+            inventory.setText("");
+        }
         var studies = groups(imageEntries, "StudyInstanceUID").values().stream()
                 .map(exam -> new Study(DesktopViewerOverlay.date(field(exam.getFirst(), "StudyDate", "")),
                         field(exam.getFirst(), "StudyDescription", "Description not provided"),
@@ -599,7 +615,29 @@ public final class DesktopViewer extends Application {
                         }).toList())).toList();
         study.getItems().setAll(studies);
         study.getSelectionModel().selectFirst();
-        if (studies.isEmpty()) select(opened.entries.getFirst());
+        if (studies.isEmpty() && !opened.entries.isEmpty()) select(opened.entries.getFirst());
+    }
+
+    private void installArchiveDetails(DesktopViewerDocument opened) {
+        profile.setText(opened.profile());
+        var otherFiles = opened.entries.stream().filter(image -> !isDicomEntry(image)).toList();
+        supportingCount.setText(Integer.toString(otherFiles.size()));
+        supporting.getChildren().setAll(otherFiles.stream().map(source -> fileRow(basename(source),
+                String.format("%,d bytes · %s", source.size(), source.sourcePath()),
+                () -> previewSupporting(source), () -> saveOriginal(source))).toList());
+        managed(supportingFiles, !otherFiles.isEmpty());
+        var links = opened.references();
+        managed(referenceDetails, !links.isEmpty());
+        var referenceCounts = new TreeMap<String, Integer>();
+        links.forEach(link -> referenceCounts.merge(referenceStatus(link), 1, Integer::sum));
+        long displayed = opened.entries.stream().filter(image -> "rendered".equals(image.status())).count();
+        var summary = new StringBuilder(opened.entries.size() + " supplied files\n" + opened.embeddedOriginalCount() + " embedded originals\n"
+                + displayed + " PDF previews\n\n" + otherFiles.size() + " other supplied files\n"
+                + links.size() + " explicit references");
+        referenceCounts.forEach((state, total) -> summary.append('\n').append(total).append(' ').append(state));
+        inventory.setText(summary.toString());
+        pageNumber.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, opened.pages(), 1));
+        pageCount.setText("of " + opened.pages());
     }
 
     private static String modalityLabel(String code) {
@@ -628,17 +666,21 @@ public final class DesktopViewer extends Application {
     }
 
     private void select(Manifest.Image source) {
+        select(source, 1);
+    }
+
+    private void select(Manifest.Image source, int initialFrame) {
         if (opening) return;
         entry = source;
         interactiveDisplay = "Not checked";
         metadataButton.setDisable(false);
         modes.getTabs().remove(specialTab);
         specialTab.setContent(null);
-        frame = frames = 1;
+        frame = frames = initialFrame;
         resetOnDisplay = true;
         stopCine();
         updatingControls = true;
-        frameNumber.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, 1, 1));
+        frameNumber.setValueFactory(new SpinnerValueFactory.IntegerSpinnerValueFactory(1, frames, frame));
         windows.getItems().setAll(DesktopViewerDocument.INITIAL);
         windows.getSelectionModel().selectFirst();
         updatingControls = false;
@@ -652,9 +694,14 @@ public final class DesktopViewer extends Application {
     }
 
     private void updateFilename(String sourcePath) {
-        String archive = document.path.getFileName().toString();
-        filename.setText(archive);
-        updateArchiveFilenameDescription();
+        String name = document.path.getFileName().toString();
+        if (document.isArchive()) {
+            filename.setText(name);
+            updateArchiveFilenameDescription();
+        } else {
+            localFilename.setText(name);
+            localFilename.setTooltip(new Tooltip(name));
+        }
         sourceName.setText(sourcePath == null ? "" : sourcePath.substring(sourcePath.lastIndexOf('/') + 1));
         sourceName.setTooltip(sourcePath == null ? null : new Tooltip(sourcePath));
     }
@@ -682,15 +729,6 @@ public final class DesktopViewer extends Application {
         filename.setAccessibleText(name + " — Open archive security report");
     }
 
-    private void previewTechnical(String name) {
-        var current = document;
-        long request = displayRequest.get();
-        run(() -> current.previewTechnical(name), preview -> {
-            if (document != current || request != displayRequest.get()) return;
-            showAttachment(name, preview);
-        });
-    }
-
     private void previewSupporting(Manifest.Image source) {
         var current = document;
         run(() -> current.load(source, 1, DesktopViewerDocument.INITIAL), preview -> {
@@ -705,17 +743,10 @@ public final class DesktopViewer extends Application {
             image.setPreserveRatio(true);
             var scroll = new ScrollPane(new StackPane(image));
             scroll.setFitToWidth(true);
-            scroll.setPrefSize(680, 400);
             image.fitWidthProperty().bind(javafx.beans.binding.Bindings.max(0, scroll.widthProperty().subtract(28)));
             showDetailsDialog(name, scroll);
         }
         status.setText("Viewing " + name);
-    }
-
-    private void saveTechnical(String name) {
-        var current = document;
-        var path = destination("Save technical file", name);
-        if (path != null) run(() -> { current.saveTechnical(name, path); return path; }, this::saved);
     }
 
     private void selectFrame(int target) {
@@ -756,7 +787,7 @@ public final class DesktopViewer extends Application {
                     interactiveDisplay = "Could not open; see status";
                     viewport.message("Original preview unavailable", error.getMessage());
                     failure(error);
-                    archiveSecurity.start();
+                    if (archiveSecurity != null) archiveSecurity.start();
                 });
             }
         });
@@ -786,6 +817,10 @@ public final class DesktopViewer extends Application {
                 ? "Opened successfully" : "Not supported; original available";
         if (display.image() != null) {
             shownImage = SwingFXUtils.toFXImage(display.image(), null);
+            if (archiveSecurity == null) {
+                var thumbnail = seriesThumbnails.get(series.getSelectionModel().getSelectedItem());
+                if (thumbnail != null && thumbnail.get() == null) thumbnail.set(shownImage);
+            }
             var exam = study.getValue();
             if (exam != null && display.overlay() != null && !display.overlay().facility().isBlank()) {
                 studySummary.setText(exam.description() + "\n" + display.overlay().facility());
@@ -805,8 +840,9 @@ public final class DesktopViewer extends Application {
             viewport.message("MR spectroscopy", "See the MR spectroscopy tab.");
         } else {
             shownImage = null;
-            viewport.message("No image available", "Use Selected file metadata or PDF reference to inspect this object.");
-            if (!isDicomEntry(source)) dialog(basename(source), display.text());
+            viewport.message("No image available", archiveSecurity == null ? "Use Selected file metadata to inspect this object."
+                    : "Use Selected file metadata or PDF reference to inspect this object.");
+            if (archiveSecurity != null && !isDicomEntry(source)) dialog(basename(source), display.text());
             else {
                 var contents = new TextArea(display.text());
                 contents.setEditable(false);
@@ -814,14 +850,15 @@ public final class DesktopViewer extends Application {
                 imageArea.getChildren().setAll(contents);
             }
         }
-        status.setText("Frame " + wantedFrame + " of " + frames + " · Original SHA-256 verified");
-        archiveSecurity.start();
+        String frameStatus = "Frame " + wantedFrame + " of " + frames;
+        status.setText(archiveSecurity == null ? frameStatus : frameStatus + " · Original SHA-256 verified");
+        if (archiveSecurity != null) archiveSecurity.start();
     }
 
     private void showSpecial(String title, Node node) {
         specialTab.setText(title);
         specialTab.setContent(node);
-        if (!modes.getTabs().contains(specialTab)) modes.getTabs().add(2, specialTab);
+        if (!modes.getTabs().contains(specialTab)) modes.getTabs().add(modes.getTabs().indexOf(sourceNameTab), specialTab);
         if (modes.getSelectionModel().getSelectedItem() != pdfTab) {
             modes.getSelectionModel().select(specialTab);
         }
@@ -872,7 +909,7 @@ public final class DesktopViewer extends Application {
 
     private void showPage() {
         var current = document;
-        if (current == null || modes.getSelectionModel().getSelectedItem() != pdfTab) return;
+        if (current == null || !current.isArchive() || modes.getSelectionModel().getSelectedItem() != pdfTab) return;
         long request = pageRequest.incrementAndGet();
         int page = pageNumber.getValue();
         run(() -> request == pageRequest.get() ? current.page(page) : null, image -> {
@@ -939,25 +976,32 @@ public final class DesktopViewer extends Application {
         run(() -> current.selectedMetadata(source), values -> {
             if (document == current && entry == source && !metadataBackdrop.isVisible()) {
                 values.put("Interactive display", interactiveDisplay);
-                showSelectedMetadata(values);
+                showSelectedMetadata(source, values);
             }
         });
     }
 
-    private void showSelectedMetadata(Map<String, Object> values) {
+    private void showSelectedMetadata(Manifest.Image source, Map<String, Object> values) {
         var title = styled(new Label("Selected file metadata"), "selected-metadata-title");
         HBox.setHgrow(title, Priority.ALWAYS);
         title.setMaxWidth(Double.MAX_VALUE);
-        var close = styled(button("×", () -> {
+        Runnable dismiss = () -> {
             metadataBackdrop.setVisible(false);
             metadataBackdrop.getChildren().clear();
             root.setMouseTransparent(false);
             metadataButton.requestFocus();
-        }), "selected-metadata-close");
+        };
+        var close = styled(button("×", dismiss), "selected-metadata-close");
         close.setAccessibleText("Close selected file metadata");
         var header = row("selected-metadata-header", title, close);
 
         var fields = styled(new VBox(12), "selected-metadata-fields");
+        var referenceActions = selectedReferenceActions(source, dismiss);
+        if (!referenceActions.isEmpty()) {
+            var section = new VBox(4, styled(new Label("REFERENCES"), "selected-metadata-term"));
+            section.getChildren().addAll(referenceActions);
+            fields.getChildren().add(section);
+        }
         values.forEach((key, value) -> {
             var term = styled(new Label(key.toUpperCase(java.util.Locale.ROOT)), "selected-metadata-term");
             term.setWrapText(true);
@@ -984,12 +1028,15 @@ public final class DesktopViewer extends Application {
         card.maxHeightProperty().bind(metadataBackdrop.heightProperty().multiply(.85));
         card.setPrefSize(820, 740);
         metadataBackdrop.getChildren().setAll(card);
+        var focusOrder = new ArrayList<Node>(List.of(close, scrolling));
+        focusOrder.addAll(referenceActions);
         metadataBackdrop.setOnKeyPressed(event -> {
             switch (event.getCode()) {
                 case ESCAPE -> close.fire();
                 case TAB -> {
-                    if (close.isFocused()) scrolling.requestFocus();
-                    else close.requestFocus();
+                    int focused = Math.max(0, focusOrder.indexOf(stage.getScene().getFocusOwner()));
+                    int next = Math.floorMod(focused + (event.isShiftDown() ? -1 : 1), focusOrder.size());
+                    focusOrder.get(next).requestFocus();
                 }
                 default -> {
                     if (!event.isShortcutDown()) return;
@@ -1003,7 +1050,7 @@ public final class DesktopViewer extends Application {
     }
 
     private void verify() {
-        if (document == null) return;
+        if (archiveSecurity == null) return;
         if (securityDialog != null && securityDialog.isShowing()) return;
         securityDialog = new DesktopViewerSecurityReport(stage, filename, archiveSecurity, securityTrust,
                 this::destination, this::chooseCertificates, status::setText);
@@ -1035,7 +1082,7 @@ public final class DesktopViewer extends Application {
     }
 
     private void saveZip(ZipScope scope) {
-        if (document == null) return;
+        if (document == null || !document.isArchive()) return;
         var archive = document;
         List<Manifest.Image> selected = switch (scope) {
             case SELECTED -> entry == null ? List.of() : List.of(entry);
@@ -1058,7 +1105,7 @@ public final class DesktopViewer extends Application {
     }
 
     private void exportMetadata() {
-        if (document == null) return;
+        if (document == null || !document.isArchive()) return;
         if (exportDialog != null && exportDialog.isShowing()) return;
         exportDialog = new DesktopViewerExport(stage, document, entry, reader, this::destination, status::setText);
         exportDialog.show();
@@ -1069,7 +1116,7 @@ public final class DesktopViewer extends Application {
         if (path == null) return null;
         try {
             if (document != null && java.nio.file.Files.exists(path) && java.nio.file.Files.isSameFile(path, document.path))
-                throw new java.io.IOException("Choose a different destination from the open archive.");
+                throw new java.io.IOException("Choose a different destination from the open file.");
         } catch (java.io.IOException error) {
             failure(error);
             return null;
@@ -1083,7 +1130,6 @@ public final class DesktopViewer extends Application {
         var contents = new TextArea(text);
         contents.setEditable(false);
         contents.setWrapText(true);
-        contents.setPrefSize(680, 400);
         showDetailsDialog(title, contents);
     }
 
@@ -1096,6 +1142,8 @@ public final class DesktopViewer extends Application {
         alert.getDialogPane().getStylesheets().setAll(stage.getScene().getStylesheets());
         alert.getDialogPane().setContent(contents);
         alert.setResizable(true);
+        alert.setWidth(Math.min(800, stage.getWidth()));
+        alert.setHeight(Math.min(540, stage.getHeight()));
         alert.show();
     }
 
@@ -1165,20 +1213,104 @@ public final class DesktopViewer extends Application {
         return pane;
     }
 
-    private Node technicalFileRow(String name) {
-        return fileRow(name, "", () -> previewTechnical(name), () -> saveTechnical(name));
+    private static void keepSectionHeaderVisible(TitledPane section, ScrollPane scroll) {
+        section.skinProperty().addListener((property, before, skin) -> {
+            // Use the TitledPane skin's title so mouse, keyboard and accessibility behavior stay native.
+            var header = section.lookup(".title");
+            if (header == null) return;
+            header.translateYProperty().bind(Bindings.createDoubleBinding(() -> {
+                if (!section.isExpanded()) return 0.0;
+                double viewportTop = scroll.getLocalToSceneTransform().getTy() + scroll.snappedTopInset();
+                double sectionTop = section.getLocalToSceneTransform().getTy();
+                double headerTop = header.getLayoutY();
+                double limit = section.getHeight() - headerTop - header.getLayoutBounds().getHeight();
+                return Math.max(0, Math.min(viewportTop - sectionTop - headerTop, limit));
+            }, section.expandedProperty(), section.heightProperty(), section.localToSceneTransformProperty(),
+                    scroll.localToSceneTransformProperty(), scroll.insetsProperty(), header.layoutYProperty(),
+                    header.layoutBoundsProperty()));
+        });
     }
 
-    private Node referenceRow(Manifest.Reference link, Map<String, Manifest.Image> byAttachment) {
-        String text = link.status() + " · " + java.util.Objects.toString(link.sopInstanceUID(), "No target instance ID recorded");
-        var target = link.resolvedAttachments() == null ? null
-                : link.resolvedAttachments().stream().map(byAttachment::get).filter(java.util.Objects::nonNull).findFirst().orElse(null);
-        if (target == null) return detailText(text);
-        var open = styled(button(text, () -> select(target)), "reference-link");
-        open.setTooltip(new Tooltip("Open " + target.sourcePath()));
-        open.setWrapText(true);
-        open.setMaxWidth(Double.MAX_VALUE);
-        return open;
+    private List<Button> selectedReferenceActions(Manifest.Image source, Runnable dismiss) {
+        var links = document.references().stream()
+                .filter(link -> Objects.equals(source.attachment(), link.sourceAttachment()))
+                .filter(link -> "resolved".equals(link.status()) && link.resolvedAttachments() != null
+                        && link.resolvedAttachments().size() == 1)
+                .toList();
+        if (links.isEmpty()) return List.of();
+
+        var files = filesByAttachment(document);
+        var actions = new LinkedHashMap<String, Button>();
+        for (var link : links) {
+            String attachment = link.resolvedAttachments().getFirst();
+            var target = files.get(attachment);
+            if (target == null || !isDicomEntry(target) || actions.containsKey(attachment)) continue;
+            int referencedFrame = link.frames() == null || link.frames().isEmpty()
+                    ? 1 : Objects.requireNonNullElse(link.frames().getFirst(), 1);
+            int firstFrame = Math.max(1, Math.min(referencedFrame, number(target, "NumberOfFrames", 1)));
+            String label = "Open " + basename(target) + (firstFrame > 1 ? " · Frame " + firstFrame : "");
+            var open = styled(button(label, () -> {
+                dismiss.run();
+                openReferencedFile(target, firstFrame);
+            }), "reference-link");
+            open.setTooltip(new Tooltip(target.sourcePath()));
+            open.setWrapText(true);
+            open.setMaxWidth(Double.MAX_VALUE);
+            actions.put(attachment, open);
+        }
+        return List.copyOf(actions.values());
+    }
+
+    private void openReferencedFile(Manifest.Image target, int firstFrame) {
+        for (var exam : study.getItems()) {
+            for (var stack : exam.series()) {
+                if (!stack.entries().contains(target)) continue;
+                updatingControls = true;
+                try {
+                    study.getSelectionModel().select(exam);
+                    if (!visibleSeries.contains(stack)) seriesSearch.clear();
+                    series.getSelectionModel().select(stack);
+                    list.getSelectionModel().select(target);
+                    series.scrollTo(stack);
+                    list.scrollTo(target);
+                } finally {
+                    updatingControls = false;
+                }
+                modes.getSelectionModel().select(imageTab);
+                select(target, firstFrame);
+                return;
+            }
+        }
+    }
+
+    private void showReferenceDetails() {
+        if (document == null || !document.isArchive()) return;
+        var files = filesByAttachment(document);
+        var report = new StringJoiner("\n\n");
+        for (var link : document.references()) {
+            var source = files.get(link.sourceAttachment());
+            String path = source == null ? Objects.toString(link.sourceAttachment(), "Source file unavailable") : source.sourcePath();
+            var detail = new StringBuilder(path).append('\n').append(referenceStatus(link)).append(" · ")
+                    .append(Objects.toString(link.sopInstanceUID(), "No target instance ID recorded"));
+            if (link.resolvedAttachments() != null) {
+                for (String attachment : link.resolvedAttachments()) {
+                    var target = files.get(attachment);
+                    if (target != null) detail.append("\n  → ").append(target.sourcePath());
+                }
+            }
+            report.add(detail.toString());
+        }
+        dialog("Reference details", report.toString());
+    }
+
+    private static String referenceStatus(Manifest.Reference link) {
+        return Objects.toString(link.status(), "unassessed").replace('-', ' ');
+    }
+
+    private static Map<String, Manifest.Image> filesByAttachment(DesktopViewerDocument archive) {
+        var files = new LinkedHashMap<String, Manifest.Image>();
+        archive.entries.forEach(source -> files.putIfAbsent(source.attachment(), source));
+        return files;
     }
 
     private static Label detailText(String text) {
@@ -1190,8 +1322,7 @@ public final class DesktopViewer extends Application {
     private static Node fileRow(String name, String facts, Runnable preview, Runnable download) {
         var title = styled(new Label(name), "file-title");
         title.setWrapText(true);
-        var text = new VBox(3, title);
-        if (!facts.isEmpty()) text.getChildren().add(detailText(facts));
+        var text = new VBox(3, title, detailText(facts));
         text.setMinWidth(0);
         HBox.setHgrow(text, Priority.ALWAYS);
         var actions = new VBox(5, fileAction(name, true, preview), fileAction(name, false, download));

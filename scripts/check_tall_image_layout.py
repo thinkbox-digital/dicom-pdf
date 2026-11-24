@@ -87,7 +87,7 @@ def preview_geometry(page, width, height):
 
 def create_archive(inputs, pdf):
     pdf.unlink(missing_ok=True)
-    created = subprocess.run(['java', '-jar', 'dist/dicom-pdf-0.62.0.jar', 'create', '--input', str(inputs),
+    created = subprocess.run(['java', '-jar', 'dist/dicom-pdf-0.63.0.jar', 'create', '--input', str(inputs),
                               '--output', str(pdf), '--c2pa', 'off'], capture_output=True, text=True, timeout=90)
     log = pdf.with_suffix('.log')
     log.write_text(created.stdout + created.stderr)
@@ -127,51 +127,51 @@ def main():
         assert geometry['x'] + geometry['width'] >= footer['width'] - 20
         assert geometry['y'] >= footer['y']
     with sync_playwright() as p:
-        for mode in ['extension', 'standalone']:
-            with tempfile.TemporaryDirectory(dir=report, prefix='profile-') as profile:
-                context = launch(p, args.chromium, Path('target/chrome-extension').resolve(), profile)
-                requests, errors = [], []
-                context.set_offline(True)
-                context.on('request', lambda r: requests.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
-                page = context.pages[0]
-                page.on('pageerror', lambda e: errors.append(str(e)))
-                address = f'chrome-extension://{extension_identity(context)}/viewer.html' if mode == 'extension' else Path('src/main/resources/viewer.html').resolve().as_uri()
-                try:
-                    for viewport in [{'width':1600,'height':900}, {'width':1000,'height':400}, {'width':760,'height':500}, {'width':480,'height':720}]:
-                        page.set_viewport_size(viewport)
-                        page.goto(address)
-                        check_version(page)
-                        page.locator('#pdf-file').set_input_files(pdf)
-                        expect(page.locator('#attachment-content img')).to_be_visible(timeout=30000)
-                        if viewport['width'] <= 850 and page.locator('#details-panel').is_visible():
-                            page.locator('#toggle-details').click()
-                        cases = []
-                        for index, (_, width, height) in enumerate(shapes):
-                            if index:
-                                page.locator('#image-list').select_option(str(index))
-                            cases.append(preview_geometry(page, width, height))
-                        page.locator('#image-list').select_option('0')
-                        preview_geometry(page, 300, 5000)
-                        check_version(page)
-                        page.locator('#save-menu summary').click()
-                        with page.expect_download() as download:
-                            page.locator('#download-original').click()
-                        recovered = report / f'{mode}-{viewport["width"]}-original.png'
-                        download.value.save_as(recovered)
-                        assert recovered.read_bytes() == (inputs / shapes[0][0]).read_bytes()
-                        page.screenshot(path=str(report / f'{mode}-{viewport["width"]}-fit.png'))
-                        page.locator('#pdf-file').set_input_files(dicom_pdf)
-                        expect(page.locator('#viewport')).to_have_attribute('data-source-frame','1',timeout=30000)
-                        expect(page.locator('#fit-view')).to_be_enabled()
-                        expect(page.locator('#controls')).to_be_in_viewport(ratio=1)
-                        geometry = page.locator('#controls').evaluate('(e)=>({bottom:e.getBoundingClientRect().bottom,window:innerHeight,viewport:document.getElementById("viewport").clientHeight})')
-                        assert geometry['bottom'] <= geometry['window'] and geometry['viewport'] > 40, geometry
-                        page.locator('#fit-view').click()
-                        check_version(page)
-                        results.append({'mode':mode,'viewport':viewport,'viewerVersion':version,'versionVisible':True,'rasterCases':cases,'originalByteExact':True,'dicomControlsVisible':True,'passed':True})
-                    assert not requests and not errors, {'requests':requests,'errors':errors}
-                finally:
-                    context.close()
+        mode = 'extension'
+        with tempfile.TemporaryDirectory(dir=report, prefix='profile-') as profile:
+            context = launch(p, args.chromium, Path('target/chrome-extension').resolve(), profile)
+            requests, errors = [], []
+            context.set_offline(True)
+            context.on('request', lambda r: requests.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
+            page = context.pages[0]
+            page.on('pageerror', lambda e: errors.append(str(e)))
+            address = f'chrome-extension://{extension_identity(context)}/viewer.html'
+            try:
+                for viewport in [{'width':1600,'height':900}, {'width':1000,'height':400}, {'width':760,'height':500}, {'width':480,'height':720}]:
+                    page.set_viewport_size(viewport)
+                    page.goto(address)
+                    check_version(page)
+                    page.locator('#pdf-file').set_input_files(pdf)
+                    expect(page.locator('#attachment-content img')).to_be_visible(timeout=30000)
+                    if viewport['width'] <= 850 and page.locator('#details-panel').is_visible():
+                        page.locator('#toggle-details').click()
+                    cases = []
+                    for index, (_, width, height) in enumerate(shapes):
+                        if index:
+                            page.locator('#image-list').select_option(str(index))
+                        cases.append(preview_geometry(page, width, height))
+                    page.locator('#image-list').select_option('0')
+                    preview_geometry(page, 300, 5000)
+                    check_version(page)
+                    page.locator('#save-menu summary').click()
+                    with page.expect_download() as download:
+                        page.locator('#download-original').click()
+                    recovered = report / f'{mode}-{viewport["width"]}-original.png'
+                    download.value.save_as(recovered)
+                    assert recovered.read_bytes() == (inputs / shapes[0][0]).read_bytes()
+                    page.screenshot(path=str(report / f'{mode}-{viewport["width"]}-fit.png'))
+                    page.locator('#pdf-file').set_input_files(dicom_pdf)
+                    expect(page.locator('#viewport')).to_have_attribute('data-source-frame','1',timeout=30000)
+                    expect(page.locator('#fit-view')).to_be_enabled()
+                    expect(page.locator('#controls')).to_be_in_viewport(ratio=1)
+                    geometry = page.locator('#controls').evaluate('(e)=>({bottom:e.getBoundingClientRect().bottom,window:innerHeight,viewport:document.getElementById("viewport").clientHeight})')
+                    assert geometry['bottom'] <= geometry['window'] and geometry['viewport'] > 40, geometry
+                    page.locator('#fit-view').click()
+                    check_version(page)
+                    results.append({'mode':mode,'viewport':viewport,'viewerVersion':version,'versionVisible':True,'rasterCases':cases,'originalByteExact':True,'dicomControlsVisible':True,'passed':True})
+                assert not requests and not errors, {'requests':requests,'errors':errors}
+            finally:
+                context.close()
     (report / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
     print(json.dumps({'cases':len(results),'rasterShapesPerCase':len(shapes),'httpRequests':0,'pageErrors':0,'passed':True}))
 

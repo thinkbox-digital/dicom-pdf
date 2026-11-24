@@ -38,8 +38,8 @@ for attempt in 1 2 3; do
     mkdir -p "$release"
     cp "dist/dicom-pdf-$application_version.jar" "dist/dicom-pdf-$application_version-desktop.jar" \
         "dist/dicom-pdf-$application_version-viewer.jar" \
-        "target/dicom-pdf-chrome-$viewer_version.zip" src/main/resources/viewer.html "$release/"
-    (cd "$release" && sha256sum -- *.jar *.zip viewer.html > SHA256SUMS)
+        "target/dicom-pdf-chrome-$viewer_version.zip" "$release/"
+    (cd "$release" && sha256sum -- *.jar *.zip > SHA256SUMS)
 
     git add -u
     git add docs/desktop-security-report.png

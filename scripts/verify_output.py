@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
@@ -90,12 +89,6 @@ def main():
                             "referencePage": page, "status": image["status"]})
         require(seen == set(inventory), "Not all supplied originals were retained")
         (report / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        viewer = extracted / "viewer.html"
-        if viewer.exists():
-            shutil.copy2(viewer, report / "viewer.html")
-        else:
-            for bundle in extracted.glob("*viewer*.zip"):
-                shutil.copy2(bundle, report / bundle.name)
     # Poppler is independent of the Java generation library and renders every page.
     run(["pdftoppm", "-r", "36", "-png", pdf, report / "page"])
     images = list(report.glob("page-*.png"))

@@ -141,12 +141,10 @@ def main():
         context=launch(p,'/snap/chromium/current/usr/lib/chromium-browser/chrome',Path('target/chrome-extension').resolve(),profile)
         context.set_offline(True)
         try:
-            locations={'extension':f'chrome-extension://{extension_identity(context)}/viewer.html',
-                       'standalone':Path('src/main/resources/viewer.html').resolve().as_uri()}
-            for name,location in locations.items():
-                destination=report/name;destination.mkdir(exist_ok=True)
-                result[name]=check_page(context,location,args.pdf,manifest,reader,destination)
-                print(f'{name}: passed',flush=True)
+            location=f'chrome-extension://{extension_identity(context)}/viewer.html'
+            destination=report/'extension';destination.mkdir(exist_ok=True)
+            result['extension']=check_page(context,location,args.pdf,manifest,reader,destination)
+            print('Extension navigation checks passed',flush=True)
         finally:context.close()
     (report/'summary.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))

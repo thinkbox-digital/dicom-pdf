@@ -4,7 +4,7 @@ title: Archival DICOM in PDF/A
 
 # Archival DICOM in PDF/A
 
-DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4f archive. The archive includes reference images you can read in a regular PDF reader and preserves the original files for recovery. The standalone viewer and Chrome extension open the embedded DICOM images for interactive viewing.
+DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4f archive. The archive includes reference images you can read in a regular PDF reader and preserves the original files for recovery. The desktop viewer and Chrome extension open the embedded DICOM images for interactive viewing.
 
 {% assign release_page = 'https://github.com/thinkbox-digital/dicom-pdf/releases/latest' %}
 {% assign release = site.github.latest_release %}

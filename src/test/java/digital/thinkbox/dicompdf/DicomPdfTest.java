@@ -44,9 +44,10 @@ class DicomPdfTest {
             var files = pdf.getDocumentCatalog().getNames().getEmbeddedFiles().getNames();
             assertNotNull(files);
             assertTrue(files.containsKey("manifest.json"));
-            assertTrue(files.containsKey("viewer.html"));
+            assertFalse(files.containsKey("viewer.html"));
             assertTrue(files.containsKey("dicom-xmp.rng"));
             JsonObject manifest = JsonParser.parseString(new String(bytes(files.get("manifest.json")), StandardCharsets.UTF_8)).getAsJsonObject();
+            assertFalse(manifest.getAsJsonObject("artifactSha256").has("viewer.html"));
             assertEquals(2, manifest.get("schemaVersion").getAsInt());
             assertEquals("0.4.0", manifest.get("profileVersion").getAsString());
             assertEquals(ApplicationVersion.CREATOR, manifest.get("creator").getAsString());

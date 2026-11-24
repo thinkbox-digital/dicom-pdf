@@ -32,7 +32,7 @@ export async function buildExtension({manifest,notices,installation,output,archi
   await esbuild.build({
     absWorkingDir:viewer,entryPoints:['extension/entry.js'],outfile:path.join(output,'viewer.js'),
     bundle:true,minify:true,format:'iife',target:['chrome120'],legalComments:'inline',external:['fs','path'],
-    define:{PDF_WORKER_URL:JSON.stringify('pdf.worker.mjs'),PDF_WORKER_SOURCE:JSON.stringify(''),DICOM_WORKER_URL:JSON.stringify('dicom.worker.mjs'),DICOM_WORKER_SOURCE:JSON.stringify(''),ARCHIVE_CHECK_WORKER_URL:JSON.stringify('archive-check.worker.mjs'),PDF_STANDARD_FONTS:JSON.stringify(fontData),DICOM_SIGNING_CA_ORIGINS:JSON.stringify(network.signingCaOrigins),DICOM_DIGICERT_TIMESTAMP_FALLBACK:JSON.stringify(digicertTimestampFallback())},loader:{'.wasm':'binary'}
+    define:{PDF_WORKER_URL:JSON.stringify('pdf.worker.mjs'),DICOM_WORKER_URL:JSON.stringify('dicom.worker.mjs'),ARCHIVE_CHECK_WORKER_URL:JSON.stringify('archive-check.worker.mjs'),PDF_STANDARD_FONTS:JSON.stringify(fontData),DICOM_SIGNING_CA_ORIGINS:JSON.stringify(network.signingCaOrigins),DICOM_DIGICERT_TIMESTAMP_FALLBACK:JSON.stringify(digicertTimestampFallback())},loader:{'.wasm':'binary'}
   });
   await esbuild.build({absWorkingDir:viewer,entryPoints:['archive-verification-worker.mjs'],outfile:path.join(output,'archive-check.worker.mjs'),bundle:true,minify:true,format:'esm',target:['chrome120'],legalComments:'inline',define:{DICOM_TRUST_ROOTS:trustRoots}});
   await esbuild.build({

@@ -25,10 +25,11 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          lfs: true
       - name: Build and verify ZIP
         run: |
           mkdir -p target
-          git archive --format=zip --output=target/dicom-pdf-examples.zip HEAD examples/
+          zip -qr target/dicom-pdf-examples.zip examples/
           unzip -tq target/dicom-pdf-examples.zip
       - name: Upload ZIP to latest release
         env:

@@ -85,20 +85,12 @@ const archiveVerification=createArchiveVerificationPanel({getArchive:()=>({manif
 }});
 export function beginInputRequest(){loading.reset();archiveVerification.reset();return ++inputRequest;}
 export function isInputRequestCurrent(token){return token===inputRequest;}
-let workerSource, pdfWorkerType='module';
-if (typeof PDF_WORKER_URL === 'string') {
-  // A supplied Worker prevents PDF.js from wrapping chrome-extension URLs in a Blob,
-  // which would conflict with the extension's local-only worker policy.
-  workerSource = new URL(PDF_WORKER_URL, document.baseURI).href;
-  pdfjs.GlobalWorkerOptions.workerPort = new Worker(workerSource, {type:'module'});
-} else {
-  workerSource = URL.createObjectURL(new Blob([PDF_WORKER_SOURCE], {type:'text/javascript'}));
-  pdfWorkerType='classic';
-  pdfjs.GlobalWorkerOptions.workerPort = new Worker(workerSource, {type:pdfWorkerType});
-}
+// A supplied worker keeps PDF.js within the extension's local-only worker policy.
+const workerSource = new URL(PDF_WORKER_URL, document.baseURI).href;
+pdfjs.GlobalWorkerOptions.workerPort = new Worker(workerSource, {type:'module'});
 pdfjs.GlobalWorkerOptions.workerSrc = workerSource;
 function createPdfWorker() {
-  const port = new Worker(workerSource, {type:pdfWorkerType});
+  const port = new Worker(workerSource, {type:'module'});
   return {worker:new pdfjs.PDFWorker({port}),port};
 }
 setUseCPURendering(true);

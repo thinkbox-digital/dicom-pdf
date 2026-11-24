@@ -139,7 +139,7 @@ public final class DicomPdf {
                 artifacts.put("dicom-structure.json",SourceContent.of(DicomStructure.bytes(DicomStructure.capture(images,originalBytes))));
                 artifacts.put("dicom-directory.json",SourceContent.of(DicomDirectory.bytes(DicomDirectory.capture(images,originalBytes))));
                 artifacts.put("display-mapping.json",resourceContent("/display-mapping.json"));
-                for(String name:List.of("dicom-xmp.rng","profile.json","field-mapping.json","RECOVERY.txt","viewer.html"))
+                for(String name:List.of("dicom-xmp.rng","profile.json","field-mapping.json","RECOVERY.txt"))
                     artifacts.put(name,resourceContent("/"+name));
                 if(c2pa){
                     artifacts.put("RECOVERY.txt",resourceContent("/c2pa-RECOVERY.txt"));
@@ -166,7 +166,7 @@ public final class DicomPdf {
                 attachments.add("manifest.sha256", (sha256(manifestBytes) + "  manifest.json\n").getBytes(StandardCharsets.UTF_8), "text/plain", "Data", "SHA-256 checksum of manifest.json; integrity check, no authentication claim");
                 for (var artifact : artifacts.entrySet()) {
                     String name = artifact.getKey();
-                    String mime = name.endsWith(".html") ? "text/html" : name.endsWith(".json") ? "application/json" : name.endsWith(".rng") ? "application/xml" : "text/plain";
+                    String mime = name.endsWith(".json") ? "application/json" : name.endsWith(".rng") ? "application/xml" : "text/plain";
                     attachments.add(name, artifact.getValue(), mime, name.endsWith(".rng")||name.endsWith(".schema.json") ? "Schema" : "Supplement", "DICOM image profile "+profileVersion+": " + name);
                 }
                 attachments.finish();
@@ -263,13 +263,10 @@ public final class DicomPdf {
             "Every supplied regular file is attached byte for byte, including unrenderable files.",
             "Reference images are for presentation. No calibrated measurements are provided.",
             "Original files and selected metadata can contain patient information.", "",
-            "Offline viewing",
-            "1. Save the viewer.html attachment using your PDF reader's attachments panel.",
-            "2. Open the saved viewer.html in a browser and select this same PDF.",
-            "3. Choose an image; adjust brightness/contrast, zoom or pan; Reset restores it.",
-            "The viewer uses the original DICOM attachments. It makes no uploads or CDN requests.",
+            "Viewing and recovery",
+            "Read the reference pages in a PDF reader or open this PDF in the DICOM desktop viewer.",
             "manifest.json maps previews to unchanged originals, one-based frames and display recipes.",
-            "Recovery without the viewer: save RECOVERY.txt, manifest.json and original attachments.",
+            "For recovery, save RECOVERY.txt, manifest.json and the original attachments.",
             "Use inspect/extract/verify commands or an ordinary PDF attachment extraction tool.",
             "Unsupported images have an explanation page and remain available as attachments.", "",
             "Study fields supplied by the originals"));

@@ -1,7 +1,7 @@
 # Third-party notices
 
 The runnable JAR includes component license/notice files under `META-INF/` and
-this project's notices under `META-INF/dicom-pdf/`. The offline viewer also
+this project's notices under `META-INF/dicom-pdf/`. The Chrome extension also
 contains its own license inventory, identical to
 `viewer/THIRD_PARTY_NOTICES.txt`. No dependency on the adjacent EA-PDF
 checkout is required at build or runtime.
@@ -104,30 +104,28 @@ asn1crypto 1.5.1 (MIT); exact copyright/license is in
 `third_party_licenses/asn1crypto-MIT.txt`. Optional independent signature verification invokes
 the locally installed OpenSSL executable; OpenSSL is not redistributed.
 
-## Offline viewer
+## Chrome extension
 
 The pilot chooses Cornerstone3D Core and Tools **2.19.16** (MIT), instead of DWV Simplistic
 (GPL-3.0), to avoid introducing GPL-3.0 viewer distribution requirements.
 dicom-parser **1.8.21** is MIT; PDF.js **4.10.38** is Apache License 2.0.
 Incremental background SHA-256 uses **@noble/hashes 1.8.0** (MIT);
-its exact upstream copyright and license accompany both viewer builds.
+its exact upstream copyright and license accompany the extension.
 Local manifest-signature verification uses **PKI.js 3.4.0** and
 **ASN1.js 3.0.6** (BSD-3-Clause), with their transitive license texts included
-in both viewer builds. Sources: <https://github.com/PeculiarVentures/PKI.js>
+in the extension. Sources: <https://github.com/PeculiarVentures/PKI.js>
 and <https://github.com/PeculiarVentures/ASN1.js>.
-Transitive components and exact license/copyright texts accompany the viewer
-build in `viewer/THIRD_PARTY_NOTICES.txt` and are bundled inline with the
-attached `viewer.html`. The Chrome extension redistributes the same JavaScript
-components and includes their notices in `THIRD_PARTY_NOTICES.txt` and its GUI.
+The Chrome extension includes the transitive components and their exact
+license and copyright texts in `THIRD_PARTY_NOTICES.txt` and its GUI.
 PDF.js's unmodified standard-font files are bundled locally: Foxit/PDFium fonts
 under BSD-3-Clause and Liberation Sans under SIL Open Font License 1.1.
 Their exact licenses are retained in `third_party_licenses/PDFJS-Foxit-BSD.txt`
-and `PDFJS-Liberation-OFL.txt`, and in the generated viewer/extension notices.
+and `PDFJS-Liberation-OFL.txt`, and in the generated extension notices.
 Font names and original font bytes are unchanged; fonts are not sold separately.
 The metadata exporter also includes a generated dcm4che 5.33.1 standard-tag
 dictionary under MPL-1.1. Its complete generated JSON source, upstream source
-availability notice and MPL text are included in the standalone viewer notices;
-the extension additionally ships `dicom-dictionary.json` unchanged.
+availability notice and MPL text are included in the extension notices. The
+extension ships `dicom-dictionary.json` unchanged.
 
 ## Reference implementation
 

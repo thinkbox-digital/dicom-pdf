@@ -15,9 +15,9 @@ test('each rebuild increments minor, resets patch, and keeps dependencies and pa
     write('package.json',{version:'0.5.9',dependencies:{example:'2.3.4'}});
     write('package-lock.json',{version:'0.5.9',packages:{'':{version:'0.5.9'},'node_modules/example':{version:'2.3.4'}}});
     write('extension/manifest.json',{manifest_version:3,version:'0.5.9'});
-    fs.writeFileSync(path.join(directory,'README.md'),'# Offline attachment viewer — 0.5.9\n`dicom-pdf-chrome-0.5.9.zip`');
+    fs.writeFileSync(path.join(directory,'README.md'),'# Chrome extension viewer — 0.5.9\n`dicom-pdf-chrome-0.5.9.zip`');
     fs.writeFileSync(path.join(directory,'extension/README.md'),'# DICOM PDF Viewer — Chrome extension 0.1.0\n`dicom-pdf-chrome-0.1.0.zip`');
-    fs.writeFileSync(path.join(root,'README.md'),'(`0.5.9`) embeds viewer `0.5.9` in new archives.\n');
+    fs.writeFileSync(path.join(root,'README.md'),'Extension `dicom-pdf-chrome-0.5.9.zip`.\n');
     const first=planViewerVersion(directory);
     assert.equal(first.version,'0.6.0');
     assert.equal(JSON.parse(fs.readFileSync(path.join(directory,'package.json'))).version,'0.5.9');
@@ -31,7 +31,7 @@ test('each rebuild increments minor, resets patch, and keeps dependencies and pa
     assert.equal(lock.packages[''].version,'0.7.0');assert.equal(lock.packages['node_modules/example'].version,'2.3.4');
     assert.match(fs.readFileSync(path.join(directory,'README.md'),'utf8'),/dicom-pdf-chrome-0\.7\.0\.zip/);
     assert.match(fs.readFileSync(path.join(directory,'extension/README.md'),'utf8'),/Chrome extension 0\.7\.0\n`dicom-pdf-chrome-0\.7\.0\.zip`/);
-    assert.equal(fs.readFileSync(path.join(root,'README.md'),'utf8'),'(`0.5.9`) embeds viewer `0.7.0` in new archives.\n');
+    assert.equal(fs.readFileSync(path.join(root,'README.md'),'utf8'),'Extension `dicom-pdf-chrome-0.7.0.zip`.\n');
     write('extension/manifest.json',{version:'0.1.0'});
     assert.throws(()=>planViewerVersion(directory),/must match/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(directory,'package.json'))).version,'0.7.0');
@@ -41,8 +41,8 @@ test('each rebuild increments minor, resets patch, and keeps dependencies and pa
 test('publication restores the previous artifact when a later output cannot be installed',()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'dicom-viewer-publication-'));
   try{
-    const current=path.join(root,'viewer.html');
-    const next=path.join(root,'new.html');
+    const current=path.join(root,'extension.zip');
+    const next=path.join(root,'new.zip');
     fs.writeFileSync(current,'working viewer');
     fs.writeFileSync(next,'new viewer');
     assert.throws(()=>publishViewerBuild(root,[[next,current],[path.join(root,'missing'),path.join(root,'extension')]]));

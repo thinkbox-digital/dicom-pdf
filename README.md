@@ -2,7 +2,7 @@
 
 Medical imaging is increasingly digital, yet patients often receive images that require specialized software, proprietary viewers, or access to systems that may not remain available.
 
-This project creates portable, self-contained PDF/A-4f archives for long-term preservation and patient access. Original DICOM files and metadata remain unchanged, alongside readable reference images, organized study information, and instructions for recovering the original medical data. The PDF pages work in an ordinary reader; an optional offline viewer provides interactive access.
+This project creates portable, self-contained PDF/A-4f archives for long-term preservation and patient access. Original DICOM files and metadata remain unchanged, alongside readable reference images, organized study information, and instructions for recovering the original medical data. Read the PDF pages in an ordinary reader or open the archive in the desktop viewer or Chrome extension for interactive access.
 
 To view a converted DICOM archive, choose **Open PDF…** or drop the PDF onto the
 viewer. Use the desktop creator or command-line converter for loose DICOM files,
@@ -45,14 +45,12 @@ During desktop creation, **Activity** reports file counts, reference-page
 generation, signing, timestamping and validation. The app also displays elapsed
 time and periodic updates while a step has no new output.
 
-To view an existing archive, [launch the Java desktop viewer](docs/GUIDE.md#desktop-dicom-viewer) or open
-[the standalone viewer](src/main/resources/viewer.html) in your browser and choose
-**Open PDF…**. The standalone browser viewer and Chrome
-extension are built together and show their shared version in the status bar.
-The viewer can display the first image while
-archive checks run in the background. New archives embed a copy of the browser viewer.
+To view an existing archive, launch the Java desktop viewer or install the Chrome
+extension. The desktop viewer can also open a standalone DICOM file through
+**Open File…**. Both viewers can display the first image while archive checks run
+in the background. [Desktop viewer](docs/GUIDE.md#desktop-dicom-viewer) · [Chrome extension](docs/GUIDE.md#install-the-chrome-extension)
 
-![DICOM PDF Viewer showing an axial chest CT image with the left series pane open](docs/desktop-viewer.png?v=0.56.0&rev=e8e17efe)
+![DICOM PDF Viewer showing an axial chest CT image with the left series pane open](docs/desktop-viewer.png)
 
 *heartscan.pdf open in desktop viewer `0.56.0`.*
 
@@ -65,6 +63,6 @@ shows the verification stage. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
-![Desktop archive security report for heartscan.pdf](docs/desktop-security-report.png?v=0.60.0)
+![Desktop archive security report for heartscan.pdf](docs/desktop-security-report.png)
 
 *Archive security report in desktop viewer `0.60.0`.*

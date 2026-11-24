@@ -1,3 +1,13 @@
+# Code navigation
+
+Start feature-to-file lookups with [the IntelliJ code map](docs/code-map.md).
+Read `target/code-map.md` for resolved line numbers when it is available, and
+use IntelliJ symbol search and call hierarchy for the current working tree.
+Update the tracked map when a listed entry point or verification file moves.
+Maven refreshes the line numbers when it publishes the runnable JARs. Run
+`java scripts/RefreshCodeMap.java` from the repository root to refresh them
+between builds.
+
 # Check library support before implementing changes
 
 Before implementing any requested feature, bug fix, or other behavior change,
@@ -28,8 +38,7 @@ Synchronize the application POM, JAR filenames, launchers, scripts, tests and
 documented commands that refer to the distribution version. Do not change the
 archival profile/schema versions just because the application is rebuilt.
 
-Every browser viewer rebuild must advance its minor version, resetting patch to zero.
-Build the standalone viewer and Chrome extension together from the shared viewer
-source. `npm --prefix viewer run build` and its `build:extension` alias advance
-both artifacts by one minor version and synchronize the package, lockfile,
-extension manifest and documented ZIP names.
+Every Chrome extension rebuild must advance its minor version, resetting patch
+to zero. `npm --prefix viewer run build` and its `build:extension` alias build
+the extension and synchronize the package, lockfile, extension manifest and
+documented ZIP names.

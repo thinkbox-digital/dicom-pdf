@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Check packaged decoder Workers against synthetic fixtures, entirely offline.
 
-Uses the freshly built standalone viewer directly from disk and the unpacked
-extension, rather than the older viewer embedded in an existing PDF. Reports and
-screenshots stay under target/. Requires scripts/requirements.txt and installed
-Playwright Chromium/Firefox; extension Chromium can be overridden with --chromium.
+Uses the unpacked Chrome extension. Reports and screenshots stay under target/.
+Requires scripts/requirements.txt and Playwright Chromium. Pass --chromium to
+select a different Chromium executable.
 Only run this audit against synthetic or approved de-identified test packages.
 """
 import argparse
@@ -16,6 +15,8 @@ import time
 
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright, expect
+
+from check_extension import extension_identity, launch
 
 
 AUDIT = """() => {
@@ -205,15 +206,15 @@ def audit_result(page, result):
     assert decoder_workers, "No local DICOM Worker was used"
     for index in decoder_workers:
         worker = audit["workers"][index]
-        assert worker["url"].startswith(("chrome-extension:", "blob:")), "Worker was loaded from an unexpected origin"
-        assert worker["type"] == ("module" if worker["url"].startswith("chrome-extension:") else "classic")
+        assert worker["url"].startswith("chrome-extension:"), "Worker was loaded from an unexpected origin"
+        assert worker["type"] == "module"
 
 
 def exercise(context, page, url, args, label, version):
     report = args.report / label
     report.mkdir(parents=True, exist_ok=True)
     result = {"case": label, "browserVersion": version, "offline": True, "images": [], "httpRequests": 0, "browserErrors": 0,
-              "standaloneSha256": digest(args.viewer), "packagedDicomWorkerSha256": digest(args.extension / "dicom.worker.mjs")}
+              "packagedDicomWorkerSha256": digest(args.extension / "dicom.worker.mjs")}
     context.set_offline(True)
     context.add_init_script("("+AUDIT+")();")
     context.on("request", lambda request: result.__setitem__("httpRequests", result["httpRequests"]+1) if request.url.startswith(("http:", "https:")) else None)
@@ -248,40 +249,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pdf", type=Path, default=Path("target/viewer-test-pdfs/expanded-formats.pdf"))
     parser.add_argument("--mono1-pdf", type=Path, default=Path("target/viewer-test-pdfs/sample-images.pdf"))
-    parser.add_argument("--viewer", type=Path, default=Path("src/main/resources/viewer.html"))
     parser.add_argument("--extension", type=Path, default=Path("target/chrome-extension"))
-    parser.add_argument("--chromium", default="/snap/chromium/current/usr/lib/chromium-browser/chrome")
+    parser.add_argument("--chromium", help="Chromium executable (defaults to Playwright Chromium)")
     parser.add_argument("--report", type=Path, default=Path("target/worker-viewing-checks"))
-    parser.add_argument("--cases", nargs="+", choices=["extension", "chromium", "firefox"], default=["extension", "chromium", "firefox"])
     args = parser.parse_args()
     args.report.mkdir(parents=True, exist_ok=True)
-    results = []
-    with sync_playwright() as playwright:
-        if "extension" in args.cases:
-            with tempfile.TemporaryDirectory(prefix="extension-profile-", dir=args.report) as profile:
-                extension = args.extension.resolve()
-                context = playwright.chromium.launch_persistent_context(str(profile), executable_path=args.chromium, headless=True,
-                    ignore_default_args=["--disable-extensions"], args=[f"--disable-extensions-except={extension}", f"--load-extension={extension}", "--no-sandbox"],
-                    viewport={"width": 1440, "height": 1000}, timeout=30000)
-                try:
-                    worker = context.service_workers[0] if context.service_workers else context.wait_for_event("serviceworker")
-                    extension_id = worker.url.split("/")[2]
-                    page = context.pages[0] if context.pages else context.new_page()
-                    results.append(exercise(context, page, f"chrome-extension://{extension_id}/viewer.html", args, "extension-chromium", context.browser.version))
-                finally:
-                    context.close()
-        for name in ("chromium", "firefox"):
-            if name not in args.cases:
-                continue
-            browser = getattr(playwright, name).launch(headless=True)
-            try:
-                context = browser.new_context(viewport={"width": 1440, "height": 1000}, offline=True)
-                results.append(exercise(context, context.new_page(), args.viewer.resolve().as_uri(), args, "standalone-"+name, browser.version))
-                context.close()
-            finally:
-                browser.close()
+    with sync_playwright() as playwright, tempfile.TemporaryDirectory(prefix="profile-", dir=args.report) as profile:
+        chromium = args.chromium or playwright.chromium.executable_path
+        with launch(playwright, chromium, args.extension.resolve(strict=True), profile) as context:
+            address = f"chrome-extension://{extension_identity(context)}/viewer.html"
+            result = exercise(context, context.pages[0], address, args, "extension-chromium", context.browser.version)
+    results = [result]
     (args.report / "summary.json").write_text(json.dumps(results, indent=2)+"\n", encoding="utf-8")
-    raise SystemExit(0 if all(result["passed"] for result in results) else 1)
+    raise SystemExit(0 if result["passed"] else 1)
 
 
 if __name__ == "__main__":

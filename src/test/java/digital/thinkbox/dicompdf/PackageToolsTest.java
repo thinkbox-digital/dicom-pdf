@@ -165,30 +165,43 @@ class PackageToolsTest {
         }
     }
 
-    @Test void profileVerificationAndRecoveryWorkWithoutAnEmbeddedViewer() throws Exception {
+    @Test void profileVerificationAndRecoveryStillHandleLegacyViewerAttachments() throws Exception {
         Path input = temporary.resolve("inputs");
         SyntheticFixtures.writeDeidentifiedCopy(input);
         Path generated = temporary.resolve("generated.pdf");
         DicomPdf.create(input, generated, "archival-master", false);
+        String attachmentName = "viewer.html";
+        byte[] viewerBytes = "<!doctype html><title>Historical viewer fixture</title>".getBytes(StandardCharsets.UTF_8);
         Path staged = temporary.resolve("staged.pdf");
         try (var document = Loader.loadPDF(generated.toFile())) {
             var catalog = document.getDocumentCatalog();
             var tree = catalog.getNames().getEmbeddedFiles();
             var names = new TreeMap<>(tree.getNames());
-            var viewer = names.remove("viewer.html");
-            var associated = catalog.getCOSObject().getCOSArray(COSName.getPDFName("AF"));
-            for (int i = 0; i < associated.size(); i++) {
-                if (associated.getObject(i) == viewer.getCOSObject()) { associated.remove(i); break; }
-            }
+            var viewer = new Attachments(document).add(attachmentName, viewerBytes, "text/html", "Supplement", "Historical viewer fixture");
+            assertNull(names.putIfAbsent(attachmentName, viewer));
+            catalog.getCOSObject().getCOSArray(COSName.getPDFName("AF")).add(viewer);
             tree.setNames(names);
             document.save(staged.toFile());
         }
         var manifest = manifest(generated);
-        manifest.getAsJsonObject("artifactSha256").remove("viewer.html");
-        Path archive = temporary.resolve("no-viewer.pdf");
+        var artifacts = manifest.getAsJsonObject("artifactSha256");
+        artifacts.addProperty(attachmentName, HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(viewerBytes)));
+        Path archive = temporary.resolve("legacy-viewer.pdf");
         writeManifest(staged, archive, manifest);
         assertEquals("PASS", PackageTools.verify(archive, input, null).metadataAccuracy().status());
-        assertEquals(1, PackageTools.extract(archive, temporary.resolve("recovered")).originals());
+        Path recovered = temporary.resolve("recovered");
+        assertEquals(1, PackageTools.extract(archive, recovered).originals());
+        assertArrayEquals(Files.readAllBytes(input.resolve("derived-copy.dcm")),
+                Files.readAllBytes(recovered.resolve("originals/derived-copy.dcm")));
+        assertArrayEquals(viewerBytes, Files.readAllBytes(recovered.resolve("package").resolve(attachmentName)));
+
+        artifacts.addProperty(attachmentName, "0".repeat(64));
+        Path mismatched = temporary.resolve("legacy-viewer-wrong-digest.pdf");
+        writeManifest(staged, mismatched, manifest);
+        var checked = PackageTools.verify(mismatched, input, null);
+        assertEquals("PASS", checked.sourceBytes().status());
+        assertEquals("FAIL", checked.metadataAccuracy().status());
+        assertTrue(checked.metadataAccuracy().details().contains("Artifact SHA-256 mismatch: " + attachmentName));
     }
 
     @Test void malformedXmpDoesNotInvalidateIndependentSourceByteChecks() throws Exception {

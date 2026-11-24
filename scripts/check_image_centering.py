@@ -83,59 +83,58 @@ def main():
     synthetic_topogram(source)
     results = []
     with sync_playwright() as p:
-        for mode in ['extension', 'standalone']:
-            with tempfile.TemporaryDirectory(dir=report, prefix='profile-') as profile:
-                context = launch(p, '/snap/chromium/current/usr/lib/chromium-browser/chrome', Path('target/chrome-extension').resolve(), profile)
-                errors, requests = [], []
-                try:
-                    context.set_offline(True)
-                    context.add_init_script(PROBE)
-                    context.on('request', lambda r: requests.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
-                    page = context.pages[0]
-                    page.on('pageerror', lambda e: errors.append(str(e)))
-                    page.set_viewport_size({'width': 2502, 'height': 1340})
-                    page.goto(f'chrome-extension://{extension_identity(context)}/viewer.html' if mode == 'extension'
-                              else Path('src/main/resources/viewer.html').resolve().as_uri())
-                    page.locator('#dicom-files').set_input_files(source.resolve())
-                    expect(page.locator('#fit-view')).to_be_enabled(timeout=30000)
-                    checks = {'open': centered(page)}
-                    page.screenshot(path=report / f'{mode}-centered.png')
-                    page.locator('#zoom-in').click()
-                    page.locator('#viewport').focus()
-                    page.keyboard.press('Shift+ArrowDown')
-                    page.locator('#fit-view').click()
-                    checks['fitAfterPanZoom'] = centered(page)
-                    page.locator('#rotate-right').click()
-                    page.locator('#fit-view').click()
-                    checks['rotatedFit'] = centered(page)
-                    page.locator('#reset').click()
-                    checks['reset'] = centered(page)
-                    page.set_viewport_size({'width': 1600, 'height': 1000})
-                    page.locator('#fit-view').click()
-                    checks['resizedFit'] = centered(page)
-                    page.locator('#compare-current').click()
-                    expect(page.locator('#comparison-fit')).to_be_enabled(timeout=30000)
-                    page.locator('#comparison-fit').click()
-                    checks['comparisonFit'] = centered(page, 'comparison-viewport')
-                    page.locator('#comparison-reset').click()
-                    checks['comparisonReset'] = centered(page, 'comparison-viewport')
-                    page.locator('#save-menu summary').click()
-                    with page.expect_download() as event:
-                        page.locator('#download-original').click()
-                    recovered = report / f'{mode}-original.dcm'
-                    event.value.save_as(recovered)
-                    assert recovered.read_bytes() == source.read_bytes()
-                    if args.pdf:
-                        page.locator('#close-comparison').click()
-                        page.locator('#pdf-file').set_input_files(args.pdf.resolve())
-                        expect(page.locator('#fit-view')).to_be_enabled(timeout=90000)
-                        page.wait_for_timeout(300)
-                        checks['localArchiveOpen'] = centered(page)
-                    assert not errors and not requests, {'errors': errors, 'requests': requests}
-                    results.append({'mode': mode, 'checks': checks, 'originalByteExact': True,
-                                    'httpRequests': 0, 'pageErrors': 0, 'passed': True})
-                finally:
-                    context.close()
+        mode = 'extension'
+        with tempfile.TemporaryDirectory(dir=report, prefix='profile-') as profile:
+            context = launch(p, '/snap/chromium/current/usr/lib/chromium-browser/chrome', Path('target/chrome-extension').resolve(), profile)
+            errors, requests = [], []
+            try:
+                context.set_offline(True)
+                context.add_init_script(PROBE)
+                context.on('request', lambda r: requests.append(r.url) if r.url.startswith(('http:', 'https:')) else None)
+                page = context.pages[0]
+                page.on('pageerror', lambda e: errors.append(str(e)))
+                page.set_viewport_size({'width': 2502, 'height': 1340})
+                page.goto(f'chrome-extension://{extension_identity(context)}/viewer.html')
+                page.locator('#dicom-files').set_input_files(source.resolve())
+                expect(page.locator('#fit-view')).to_be_enabled(timeout=30000)
+                checks = {'open': centered(page)}
+                page.screenshot(path=report / f'{mode}-centered.png')
+                page.locator('#zoom-in').click()
+                page.locator('#viewport').focus()
+                page.keyboard.press('Shift+ArrowDown')
+                page.locator('#fit-view').click()
+                checks['fitAfterPanZoom'] = centered(page)
+                page.locator('#rotate-right').click()
+                page.locator('#fit-view').click()
+                checks['rotatedFit'] = centered(page)
+                page.locator('#reset').click()
+                checks['reset'] = centered(page)
+                page.set_viewport_size({'width': 1600, 'height': 1000})
+                page.locator('#fit-view').click()
+                checks['resizedFit'] = centered(page)
+                page.locator('#compare-current').click()
+                expect(page.locator('#comparison-fit')).to_be_enabled(timeout=30000)
+                page.locator('#comparison-fit').click()
+                checks['comparisonFit'] = centered(page, 'comparison-viewport')
+                page.locator('#comparison-reset').click()
+                checks['comparisonReset'] = centered(page, 'comparison-viewport')
+                page.locator('#save-menu summary').click()
+                with page.expect_download() as event:
+                    page.locator('#download-original').click()
+                recovered = report / f'{mode}-original.dcm'
+                event.value.save_as(recovered)
+                assert recovered.read_bytes() == source.read_bytes()
+                if args.pdf:
+                    page.locator('#close-comparison').click()
+                    page.locator('#pdf-file').set_input_files(args.pdf.resolve())
+                    expect(page.locator('#fit-view')).to_be_enabled(timeout=90000)
+                    page.wait_for_timeout(300)
+                    checks['localArchiveOpen'] = centered(page)
+                assert not errors and not requests, {'errors': errors, 'requests': requests}
+                results.append({'mode': mode, 'checks': checks, 'originalByteExact': True,
+                                'httpRequests': 0, 'pageErrors': 0, 'passed': True})
+            finally:
+                context.close()
     (report / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
     print(json.dumps(results))
 

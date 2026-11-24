@@ -13,7 +13,7 @@ public final class DesktopViewerLauncher {
     private DesktopViewerLauncher() {}
 
     public static void main(String[] args) {
-        String usage = "Usage: java -jar dicom-pdf-" + ApplicationVersion.VERSION + "-viewer.jar [archive.pdf]";
+        String usage = "Usage: java -jar dicom-pdf-" + ApplicationVersion.VERSION + "-viewer.jar [archive.pdf | dicom-file]";
         if (args.length == 1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
             System.out.println("DICOM PDF Viewer\n" + usage);
             return;

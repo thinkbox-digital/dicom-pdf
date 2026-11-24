@@ -193,8 +193,8 @@ def ct_case(context,location,path,report):
     finally:page.close()
 
 
-def synthetic_case(context,location,inputs,expectations,report,basic=False):
-    names=list(expectations['files']);names=[names[0],names[-1]] if basic else names
+def synthetic_case(context,location,inputs,expectations,report):
+    names=list(expectations['files'])
     paths=[inputs/name for name in names];page=new_page(context,location)
     try:
         page.locator('#dicom-files').set_input_files(paths);model=wait_model(page);entries=model['entries']
@@ -216,8 +216,8 @@ def synthetic_case(context,location,inputs,expectations,report,basic=False):
         page.locator('#toggle-overlays').click();expect(page.locator('#image-overlays')).not_to_be_visible()
         select_source(page,0,entries[0]);expect(page.locator('#image-overlays')).not_to_be_visible()
         page.locator('#toggle-overlays').click();expect(page.locator('#image-overlays')).to_be_visible()
-        return {'case':'standalone-synthetic' if basic else 'synthetic-orientation','status':'PASS','files':len(names),'frameChecks':frame_checks,
-            'malformedAndQuadrupedMarkersHidden':not basic,'actualNonSquareScaleCorrect':True,'whitelistedHeading':True,
+        return {'case':'synthetic-orientation','status':'PASS','files':len(names),'frameChecks':frame_checks,
+            'malformedAndQuadrupedMarkersHidden':True,'actualNonSquareScaleCorrect':True,'whitelistedHeading':True,
             'infoPersistsAcrossSources':True,'liveDisplayControls':controls_checked,'originalsByteIdentical':recovered}
     finally:page.close()
 
@@ -246,7 +246,6 @@ def main():
     parser.add_argument('--inputs',type=Path,default=Path('target/overlay-inputs'))
     parser.add_argument('--expectations',type=Path,default=Path('target/overlay-fixtures/expectations.json'))
     parser.add_argument('--extension',type=Path,default=Path('target/chrome-extension'))
-    parser.add_argument('--standalone',type=Path,default=Path('src/main/resources/viewer.html'))
     parser.add_argument('--chromium',default='/snap/chromium/current/usr/lib/chromium-browser/chrome')
     args=parser.parse_args();project=Path(__file__).resolve().parents[1]
     report=project/'target/image-overlay-checks';work_path(report,'.');report.mkdir(parents=True,exist_ok=True)
@@ -255,7 +254,6 @@ def main():
     sources[args.pdf.resolve(strict=True)]=fingerprint(args.pdf)
     assert all(fingerprint(path)==digest for path,digest in sources.items())
     extension=args.extension.resolve(strict=True);assets={extension/name:fingerprint(extension/name) for name in ['viewer.js','viewer.html','viewer.css']}
-    assets[args.standalone.resolve(strict=True)]=fingerprint(args.standalone)
     result={'httpRequests':0,'pageErrors':0,'cases':[]}
     with sync_playwright() as playwright,tempfile.TemporaryDirectory(prefix='profile-',dir=report) as profile:
         context=launch(playwright,args.chromium,extension,profile)
@@ -266,8 +264,7 @@ def main():
             location=f'chrome-extension://{extension_identity(context)}/viewer.html'
             cases=[('ct',lambda:ct_case(context,location,args.pdf,report)),
                 ('synthetic',lambda:synthetic_case(context,location,inputs,golden,report)),
-                ('unsupported',lambda:unsupported_case(context,location,project,inputs,report)),
-                ('standalone',lambda:synthetic_case(context,args.standalone.resolve().as_uri(),inputs,golden,report,True))]
+                ('unsupported',lambda:unsupported_case(context,location,project,inputs,report))]
             for label,run in cases:
                 try:result['cases'].append(run())
                 except Exception as error:

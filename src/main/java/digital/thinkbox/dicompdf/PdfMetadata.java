@@ -62,7 +62,7 @@ final class PdfMetadata {
         xmp.setEndXPacket("w");
         var dc = xmp.createAndAddDublinCoreSchema();
         dc.setTitle("DICOM study reference");
-        dc.setDescription("Reference images with byte-preserved DICOM originals and an offline viewer. "
+        dc.setDescription("Reference images with byte-preserved DICOM originals. "
                 + "Missing source fields remain absent; reference images are not calibrated measurements.");
         dc.setFormat("application/pdf");
         dc.addCreator(PRODUCT);

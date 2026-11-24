@@ -1,4 +1,4 @@
-# Offline attachment viewer — 0.87.0
+# Chrome extension viewer — 0.88.0
 
 The file integrity report opens at the top on every visit. Its close × stays in
 the top-right header while the report scrolls; Save report remains at the bottom.
@@ -49,38 +49,32 @@ CMS/PDF signatures, timestamp imprints, C2PA binding and DICOM archival
 revisions. The report can automatically load public timestamp CA certificates.
 Add the signer’s CA from a file or an approved HTTPS site. See [browser security verification](../docs/SECURITY.md#viewer-results).
 
-The Maven build embeds the checked-in `src/main/resources/viewer.html`. Recipients save that PDF attachment, open the HTML directly from disk, and select the same PDF with its file picker. The first supported image opens automatically, skipping files rejected for display; a package with no supported images shows an explicit status and retains its source list. Viewing and signature verification run locally. Optional network access retrieves
-public CA certificates from approved sites. All runtime code, the PDF.js worker, the native pixel decoder, and third-party notices are inside that one file.
+The first supported image opens automatically. A package with no supported images shows its source list and a status message. Viewing and signature verification run locally. The extension bundles the runtime code, PDF.js worker, native pixel decoder and third-party notices. Optional network access retrieves public CA certificates from approved sites.
 
 PDF.js reads `manifest.json` and the original attachments. The viewer checks each original's SHA-256 and instance identifier before displaying it. For a mapped PDF preview, version 2 applies its recorded display baseline from `displayAdjustments`; Reset restores the initial effective PDF/decoder window and camera. File-provided LINEAR, LINEAR_EXACT and SIGMOID alternatives can be explored without rewriting that baseline. Browser interactions do not modify the original, manifest or PDF preview. The viewer shows the package profile and adds a label when the manifest declares a de-identified copy. That label records the creator's declaration. Cornerstone3D handles grayscale/color display, windowing, zoom, pan, and reset through its CPU stack viewport. `dicom-parser` reads the DICOM attributes; `native-dicom.mjs` decodes the native and compressed transfer syntaxes listed in the [guide format matrix](../docs/GUIDE.md#image-support). Native, deflated, RLE, JPEG, JPEG Lossless, JPEG-LS and JPEG2000 codecs are bundled locally; no external runtime codec download is needed. The wheel steps through frames/slices; Ctrl+wheel zooms. Display coordinates are unitless; the pilot provides no calibrated measurement tools.
 
-DWV Simplistic was evaluated: it already provides a small toolbar, but [its GPL-3.0 distribution terms](https://github.com/ivmartel/dwv-simplistic/blob/main/license.txt) were not selected for this pilot. The chosen [Cornerstone3D path is MIT licensed](https://github.com/cornerstonejs/cornerstone3D/blob/v2.19.16/LICENSE). PDF.js is Apache-2.0 and dicom-parser is MIT. `THIRD_PARTY_NOTICES.txt` is generated from installed license and notice files and is included in the HTML itself.
+DWV Simplistic was evaluated: it already provides a small toolbar, but [its GPL-3.0 distribution terms](https://github.com/ivmartel/dwv-simplistic/blob/main/license.txt) were not selected for this pilot. The chosen [Cornerstone3D path is MIT licensed](https://github.com/cornerstonejs/cornerstone3D/blob/v2.19.16/LICENSE). PDF.js is Apache-2.0 and dicom-parser is MIT. `THIRD_PARTY_NOTICES.txt` is generated from installed license and notice files and is bundled with the extension.
 
-To change/rebuild the asset (Node.js 24 and npm 11 were checked):
+Build and test with Node.js 24 and npm 11.
 
 ```sh
 npm ci --prefix viewer
 npm run build --prefix viewer
 npm test --prefix viewer
-mvn test
+npm run test:extension --prefix viewer
 ```
 
 Every rebuild advances the viewer's minor version and resets patch to zero,
 updating the package, lockfile, extension manifest and documented ZIP filename.
-`npm run build` and its `npm run build:extension` alias generate both standalone
-and extension artifacts with one shared version. Maven packaging uses the
-generated standalone HTML.
+`npm run build` and its `npm run build:extension` alias produce the same extension artifacts.
 
-The node tests use the checked-in synthetic fixtures. Dependencies and compatible patched transitive overrides are pinned in `package.json` and `package-lock.json`. Normal Java builds do not require Node.js or npm. The generated HTML and notice file must be committed together with source changes.
+The node tests use the checked-in synthetic fixtures. Dependencies and compatible patched transitive overrides are pinned in `package.json` and `package-lock.json`. Normal Java builds do not require Node.js or npm. Build-generated notice and version updates accompany source changes.
 
 Profile 0.2.0 adds attached `inventory.txt`, `profile.json`, `field-mapping.json`, `RECOVERY.txt` and `manifest.sha256`. Recovery and command-line verification do not depend on this web viewer. See the [guide](../docs/GUIDE.md) for `inspect`, `extract` and `verify`. Keep archival masters and approved deidentified derivatives in separate packages and directories.
 
-The same reading code is also packaged as a Chrome extension with explicit PDF
-opening, a PDF-reference tab, metadata/inventory and original-file
-downloads. See [extension installation and build instructions](extension/README.md).
-Run `npm --prefix viewer run build` from the repository root to produce
-`src/main/resources/viewer.html`, `target/chrome-extension` and
-`target/dicom-pdf-chrome-0.87.0.zip`.
+Load `target/chrome-extension` in Chrome or extract the files from
+`target/dicom-pdf-chrome-0.88.0.zip`.
+[Extension installation instructions](extension/README.md)
 
 Archive integrity checks run automatically. The PDF worker hashes decoded
 attachments and returns only their sizes and SHA-256 values for comparison.

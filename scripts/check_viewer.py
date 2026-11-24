@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Exercise the extracted attachment directly from disk with Playwright browsers offline.
+"""Exercise the unpacked Chrome extension with Playwright offline.
 
-Requires Python Playwright and its Chromium/Firefox browser installations.
 Use --verification for the run directory printed by verify_output.py, or read the attachments directly from the PDF.
 """
 import argparse
@@ -12,6 +11,8 @@ from pathlib import Path
 
 from pypdf import PdfReader
 from playwright.sync_api import sync_playwright, expect
+
+from check_extension import extension_identity, launch
 
 
 def check_source_inventory(page, entries):
@@ -26,11 +27,11 @@ def check_source_inventory(page, entries):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pdf", type=Path, required=True)
-    parser.add_argument("--viewer", type=Path, help="Override the embedded viewer")
+    parser.add_argument("--extension", type=Path, default=Path("target/chrome-extension"))
+    parser.add_argument("--chromium", help="Chromium executable (defaults to Playwright Chromium)")
     parser.add_argument("--manifest", type=Path, help="Override the embedded manifest")
     parser.add_argument("--verification", type=Path, help="Directory written by verify_output.py for this PDF")
     parser.add_argument("--report", type=Path, help="Browser report directory (default: a fresh run under target/viewer-checks)")
-    parser.add_argument("--browsers", nargs="+", choices=["chromium", "firefox", "webkit"], default=["chromium", "firefox"])
     args = parser.parse_args()
     if args.report is None:
         base = Path("target/viewer-checks")
@@ -38,30 +39,26 @@ def main():
         args.report = Path(tempfile.mkdtemp(prefix="run-", dir=base))
     args.report.mkdir(parents=True, exist_ok=True)
     if args.verification:
-        args.viewer = args.viewer or args.verification / "viewer.html"
         args.manifest = args.manifest or args.verification / "manifest.json"
     reader = PdfReader(args.pdf)
     embedded_manifest = json.loads(reader.attachments["manifest.json"][0])
     manifest = json.loads(args.manifest.read_text(encoding="utf-8")) if args.manifest else embedded_manifest
     if manifest != embedded_manifest:
         parser.error("The selected verification manifest differs from this PDF")
-    if not args.viewer:
-        viewer_dir = Path(tempfile.mkdtemp(prefix="attachment-", dir=args.report))
-        args.viewer = viewer_dir / "viewer.html"
-        args.viewer.write_bytes(reader.attachments["viewer.html"][0])
     print(f"Browser reports: {args.report}", flush=True)
     entries = manifest["images"]
     results = []
-    with sync_playwright() as playwright:
-        for name in args.browsers:
-            browser = getattr(playwright, name).launch(headless=True)
-            context = browser.new_context(viewport={"width": 1280, "height": 900}, offline=True)
+    name = "chromium"
+    with sync_playwright() as playwright, tempfile.TemporaryDirectory(prefix="profile-", dir=args.report) as profile:
+        chromium = args.chromium or playwright.chromium.executable_path
+        with launch(playwright, chromium, args.extension.resolve(strict=True), profile) as context:
+            context.set_offline(True)
             page = context.new_page()
             errors = []
             network = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("request", lambda request: network.append(request.url) if request.url.startswith(("https:", "http:")) else None)
-            page.goto(args.viewer.resolve().as_uri())
+            page.goto(f"chrome-extension://{extension_identity(context)}/viewer.html")
             viewer_version = page.locator('meta[name="application-version"]').get_attribute("content")
             page.locator("#pdf-file").set_input_files(args.pdf.resolve())
             expect(page.locator("#viewport")).to_have_attribute("data-input-kind", "pdf-package", timeout=120000)
@@ -79,12 +76,10 @@ def main():
                 expect(page.locator("#reset")).to_be_disabled()
                 assert page.locator("#status").inner_text().strip(), "A package with no active image needs a display status"
                 assert not network and not errors, "Browser failed the offline check"
-                results.append({"browser":name,"version":browser.version,"viewerVersion":viewer_version,"urlScheme":"file","offline":True,
+                results.append({"browser":name,"version":context.browser.version,"viewerVersion":viewer_version,"urlScheme":"chrome-extension","offline":True,
                                 "initialAutomaticLoad":None,"imageControlsDisabled":True,"ancillaryCount":len(ancillary)})
                 (args.report / "browser-checks.json").write_text(json.dumps(results, indent=2)+"\n")
-                context.close()
-                browser.close()
-                continue
+                return
             first_index = int(page.locator("#image-list").input_value())
             initial_entry = entries[first_index]
             assert initial_attachment == initial_entry["attachment"], "Displayed source differs from the automatic selection"
@@ -155,7 +150,7 @@ def main():
             page.screenshot(path=str(args.report / f"viewer-{name}.png"))
             assert not network, f"Network requests: {network}"
             assert not errors, f"Browser runtime errors: {errors}"
-            result = {"browser": name, "version": browser.version, "viewerVersion":viewer_version, "urlScheme": "file",
+            result = {"browser": name, "version": context.browser.version, "viewerVersion":viewer_version, "urlScheme": "chrome-extension",
                       "offline": True, "profileVersion": manifest.get("profileVersion"),
                       "sourceRole": manifest.get("sourceRole"), "networkRequests": network, "renderedOriginals": checked, "ancillaryCount": len(ancillary),
                       "initialAutomaticLoad": initial_entry["attachment"], "noSupportedImages": False,
@@ -165,9 +160,7 @@ def main():
                                          "zoom": zoom, "pan": pan}}
             results.append(result)
             (args.report / "browser-checks.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
-            print(f"{name} {browser.version}: {len(checked)} originals displayed, all controls changed pixels offline")
-            context.close()
-            browser.close()
+            print(f"{name} {context.browser.version}: {len(checked)} originals displayed, all controls changed pixels offline")
 
 
 if __name__ == "__main__":

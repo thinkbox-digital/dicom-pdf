@@ -8,7 +8,7 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>dicom-pdf</artifactId>
-  <version>0.62.0</version>
+  <version>0.63.0</version>
   <name>DICOM PDF pilot</name>
   <properties>
     <dcm4che.version>5.33.1</dcm4che.version>
@@ -407,7 +407,6 @@
                     <exclude>digital/thinkbox/dicompdf/DesktopSigningSelection*.class</exclude>
                     <exclude>digital/thinkbox/dicompdf/DesktopFileDialogs*.class</exclude>
                     <exclude>digital/thinkbox/dicompdf/JarPublication*.class</exclude>
-                    <exclude>viewer.html</exclude>
                   </excludes>
                 </filter>
               </filters>
@@ -548,6 +547,8 @@
                   <arg file="${project.build.directory}/desktop-security-report.png" />
                   <arg value="${screenshot.ca}" />
                 </java>
+                <java sourcefile="${project.basedir}/../scripts/RefreshCodeMap.java"
+                      dir="${project.basedir}/.." fork="true" failonerror="true" />
                 <java classname="digital.thinkbox.dicompdf.JarPublication" fork="true" failonerror="true">
                   <classpath>
                     <pathelement location="${project.build.outputDirectory}" />

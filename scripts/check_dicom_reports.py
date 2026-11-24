@@ -25,7 +25,7 @@ PROBE=r"""(() => {
   const Original=globalThis.Worker;
   globalThis.Worker=class extends Original {
     constructor(url,options){
-      super(url,options);const parsed=new URL(String(url),document.baseURI),name=parsed.protocol==='blob:'?'embedded-worker':parsed.pathname.split('/').pop();
+      super(url,options);const name=new URL(String(url),document.baseURI).pathname.split('/').pop();
       state.workers.push(name);this.__reportWorker=name;
       this.addEventListener('message',async event=>{
         const message=event.data||{};
@@ -151,10 +151,9 @@ def report_views(page,frame,entries,expected,source_bytes,report):
     download_original(page,frame,image,report/"image.recovered",source_bytes["01-image.dcm"])
     workers=frame.evaluate("({requests:__reportProbe.documentRequests,workers:__reportProbe.workers})")
     assert workers["requests"]>=2
-    if "embedded-worker" in workers["workers"]:assert len(workers["workers"])>=4
-    else:assert workers["workers"].count("pdf.worker.mjs")>=2
+    assert workers["workers"].count("pdf.worker.mjs")>=2
     assert frame.evaluate("globalThis.__reportScriptRan===undefined")
-    return {"reports":results,"documentRequests":workers["requests"],"pdfWorkerCount":workers["workers"].count("pdf.worker.mjs"),"embeddedWorkerCount":workers["workers"].count("embedded-worker")}
+    return {"reports":results,"documentRequests":workers["requests"],"pdfWorkerCount":workers["workers"].count("pdf.worker.mjs")}
 
 
 def report_only_views(page,frame,entries,expected,source_bytes,report):
@@ -190,7 +189,6 @@ def main():
     parser.add_argument("--expectations",type=Path,default=Path("target/report-fixtures/expectations.json"))
     parser.add_argument("--pdf",type=Path,default=Path("target/viewer-test-pdfs/synthetic-reports.pdf"))
     parser.add_argument("--report",type=Path,default=Path("target/dicom-report-checks"))
-    parser.add_argument("--standalone",type=Path,default=Path("src/main/resources/viewer.html"))
     parser.add_argument("--report-only-sources",type=Path,default=Path("target/report-only-inputs"))
     parser.add_argument("--report-only-pdf",type=Path,default=Path("target/viewer-test-pdfs/synthetic-reports-only.pdf"))
     parser.add_argument("--chromium",default="/snap/chromium/current/usr/lib/chromium-browser/chrome")
@@ -202,7 +200,7 @@ def main():
     for entry in manifest["images"]:
         assert package.attachments[entry["attachment"]][0]==source_bytes[entry["sourcePath"]]
     asset_names=["manifest.json","viewer.html","viewer.css","viewer.js","dicom.worker.mjs","dicom-input.worker.mjs","pdf.worker.mjs"]
-    assets={name:sha((extension/name).read_bytes()) for name in asset_names};package_hash=sha(args.pdf.read_bytes());standalone_hash=sha(args.standalone.read_bytes())
+    assets={name:sha((extension/name).read_bytes()) for name in asset_names};package_hash=sha(args.pdf.read_bytes())
     result={"syntheticOnly":True,"offline":True,"httpRequestCount":0,"runtimeErrorCount":0,"cases":[],"assets":assets};requests=[];errors=[]
     try:
         with sync_playwright() as playwright,tempfile.TemporaryDirectory(prefix="profile-",dir=report) as profile:
@@ -212,10 +210,10 @@ def main():
                 context.set_offline(True);context.add_init_script(PROBE)
                 context.on("request",lambda request:requests.append(True) if request.url.startswith(("http:","https:")) else None)
                 page=context.pages[0];page.on("pageerror",lambda error:errors.append(True))
-                for mode in ["direct","pdf-package","standalone"]:
+                for mode in ["direct","pdf-package"]:
                     case_report=report/mode;case_report.mkdir(exist_ok=True)
-                    if mode in {"direct","standalone"}:
-                        page.goto(args.standalone.resolve().as_uri() if mode=="standalone" else f"chrome-extension://{extension_id}/viewer.html",wait_until="domcontentloaded")
+                    if mode=="direct":
+                        page.goto(f"chrome-extension://{extension_id}/viewer.html",wait_until="domcontentloaded")
                         page.locator("#dicom-files").set_input_files([args.sources/name for name in source_bytes])
                         wait_probe(page,page.main_frame,'models',1)
                         entries=page.evaluate("__reportProbe.models.at(-1)");frame=page.main_frame
@@ -232,13 +230,13 @@ def main():
                         frame.locator("#show-image").click();wait_image(frame,entries[image_index],image_index);case["pdfImageSelectionRoundtrip"]=True
                     result["cases"].append(case);print(f"Synthetic {mode}: PDF/SR viewing, source recovery and image roundtrip passed",flush=True)
                 report_only_package=PdfReader(args.report_only_pdf);report_only_manifest=json.loads(report_only_package.attachments["manifest.json"][0])
-                for mode in ["direct-report-only","pdf-package-report-only","standalone-report-only"]:
+                for mode in ["direct-report-only","pdf-package-report-only"]:
                     case_report=report/mode;case_report.mkdir(exist_ok=True)
                     if mode=="pdf-package-report-only":
                         page.goto(args.report_only_pdf.resolve().as_uri(),wait_until="domcontentloaded")
                         frame=viewer_frame(page,extension_id);entries=report_only_manifest["images"]
                     else:
-                        page.goto(args.standalone.resolve().as_uri() if mode.startswith("standalone") else f"chrome-extension://{extension_id}/viewer.html",wait_until="domcontentloaded")
+                        page.goto(f"chrome-extension://{extension_id}/viewer.html",wait_until="domcontentloaded")
                         page.locator("#dicom-files").set_input_files(sorted(args.report_only_sources.glob('*.dcm')))
                         wait_probe(page,page.main_frame,'models',1)
                         entries=page.evaluate("__reportProbe.models.at(-1)");frame=page.main_frame
@@ -250,7 +248,6 @@ def main():
             finally:context.close()
         assert all(sha((extension/name).read_bytes())==value for name,value in assets.items()),"Extension assets changed during report integration checks"
         assert sha(args.pdf.read_bytes())==package_hash
-        assert sha(args.standalone.read_bytes())==standalone_hash
         for name,data in source_bytes.items():assert (args.sources/name).read_bytes()==data
         result["passed"]=True
     except Exception as error:

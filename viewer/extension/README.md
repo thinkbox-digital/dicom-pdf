@@ -1,4 +1,4 @@
-# DICOM PDF Viewer — Chrome extension 0.87.0
+# DICOM PDF Viewer — Chrome extension 0.88.0
 
 The extension reads converted PDF packages locally and displays their unchanged
 2D image frames from CT/MR and other DICOM image-storage classes. It shares the pilot's PDF.js, native decoder,
@@ -16,8 +16,7 @@ rotation, pan, zoom and reset.
 ## Install and open a PDF
 
 1. Build with `npm ci --prefix viewer` and `npm run build --prefix viewer`
-   from the repository root; this builds the standalone viewer and extension. The
-   extension build uses Node.js/npm and Python 3 (for the ZIP archive).
+   from the repository root. The extension build uses Node.js, npm and Python 3.
 2. Open `chrome://extensions`, enable Developer mode and choose **Load unpacked**.
 3. Select `target/chrome-extension` (the directory containing `manifest.json`).
 4. Click the extension icon to open the viewer, then drop `target/viewer-test-pdfs/sample-images.pdf`
@@ -40,7 +39,7 @@ rotation, pan, zoom and reset.
    The Window menu offers file-provided alternatives; Info toggles image overlays.
    **Save document XMP** is available inside **Export metadata…**.
 
-`target/dicom-pdf-chrome-0.87.0.zip` contains the same installable unpacked files.
+`target/dicom-pdf-chrome-0.88.0.zip` contains the same installable unpacked files.
 This pilot is not published or signed through the Chrome Web Store. Extract the
 ZIP before choosing Load unpacked; Chrome does not install that ZIP directly.
 

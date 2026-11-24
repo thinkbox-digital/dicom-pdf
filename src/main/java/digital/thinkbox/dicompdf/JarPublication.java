@@ -28,7 +28,6 @@ public final class JarPublication {
         List<Path> installed=new ArrayList<>();
         boolean ready=false;
         try {
-            byte[] viewer=null;
             for(var artifact:artifacts.entrySet()) {
                 String name=artifact.getKey();
                 if(Files.exists(distribution.resolve(name),LinkOption.NOFOLLOW_LINKS))
@@ -38,27 +37,19 @@ public final class JarPublication {
                     var manifest=jar.getManifest();
                     if(manifest==null||!artifact.getValue().equals(manifest.getMainAttributes().getValue(Attributes.Name.MAIN_CLASS)))
                         throw new IOException("Missing or incorrect runnable entry point: "+name);
+                    if(jar.getJarEntry("viewer.html")!=null)
+                        throw new IOException("Unexpected standalone browser viewer in "+name);
                     var entries=new ArrayList<>(List.of(artifact.getValue().replace('.','/')+".class",
                             "com/google/gson/JsonParser.class","org/apache/pdfbox/pdmodel/PDDocument.class"));
-                    boolean nativeViewer=name.equals(viewerJar);
-                    if(nativeViewer){
+                    if(name.equals(viewerJar)){
                         entries.addAll(List.of("digital/thinkbox/dicompdf/DesktopViewer.class","desktop-viewer.css",
                                 "javafx/scene/control/Button.class","icons/icon-128.png",
                                 "digital/thinkbox/dicompdf/DesktopViewerReportText.class"));
                         for(String platform:List.of("linux","linux-aarch64","mac","mac-aarch64","win"))
                                 entries.add("META-INF/dicom-pdf/javafx/"+platform+".jar");
-                    }else entries.add("viewer.html");
+                    }
                     for(String entry:entries)
                         if(jar.getJarEntry(entry)==null)throw new IOException("Incomplete runnable JAR: "+name+" lacks "+entry);
-                    if(!nativeViewer){
-                        try(var input=jar.getInputStream(jar.getJarEntry("viewer.html"))) {
-                            byte[] current=input.readAllBytes();
-                            if(current.length==0)throw new IOException("Missing viewer content in "+name);
-                            if(viewer!=null&&!Arrays.equals(viewer,current))
-                                throw new IOException("Runnable JARs embed different viewers");
-                            viewer=current;
-                        }
-                    }
                 }
             }
             for(String name:artifacts.keySet()) {
