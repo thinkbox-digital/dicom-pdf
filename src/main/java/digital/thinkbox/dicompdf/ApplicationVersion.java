@@ -2,7 +2,7 @@ package digital.thinkbox.dicompdf;
 
 /** Application release identity; independent of archival profile/schema versions. */
 final class ApplicationVersion {
-    static final String VERSION="0.61.0";
+    static final String VERSION="0.62.0";
     static final String CREATOR="dicom-pdf "+VERSION;
     private ApplicationVersion(){}
 }
