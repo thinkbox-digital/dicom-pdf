@@ -87,7 +87,7 @@ def preview_geometry(page, width, height):
 
 def create_archive(inputs, pdf):
     pdf.unlink(missing_ok=True)
-    created = subprocess.run(['java', '-jar', 'dist/dicom-pdf-0.56.0.jar', 'create', '--input', str(inputs),
+    created = subprocess.run(['java', '-jar', 'dist/dicom-pdf-0.57.0.jar', 'create', '--input', str(inputs),
                               '--output', str(pdf), '--c2pa', 'off'], capture_output=True, text=True, timeout=90)
     log = pdf.with_suffix('.log')
     log.write_text(created.stdout + created.stderr)
