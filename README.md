@@ -52,9 +52,9 @@ extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. New archives embed a copy of the browser viewer.
 
-![Java desktop DICOM viewer displaying an axial CT image with series, orientation, and window overlays](docs/desktop-viewer.png)
+![Java desktop DICOM viewer displaying greg.pdf with its left series pane open](docs/desktop-viewer.png?v=0.56.0)
 
-*CT image captured with standalone viewer build `0.51.0`.*
+*greg.pdf open in desktop viewer `0.56.0`.*
 
 Click the PDF filename to open the archive security report. It checks supported
 PDF signatures, RFC 3161 timestamps, C2PA credentials and DICOM PAdES B-LTA
@@ -65,6 +65,6 @@ shows the verification stage. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
-![Desktop archive security report displaying the larger font on a synthetic CT archive](docs/desktop-security-report.png)
+![Desktop archive security report for greg.pdf](docs/desktop-security-report.png?v=0.56.0)
 
-*Archive security report in desktop viewer `0.54.0`.*
+*Archive security report in desktop viewer `0.56.0`.*
