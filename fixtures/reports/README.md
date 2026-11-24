@@ -7,8 +7,8 @@ Generate inputs and independent expected payloads:
 
 ```sh
 node fixtures/reports/generate.mjs
-java -jar dist/dicom-pdf-0.49.0.jar create --input target/report-inputs --output target/viewer-test-pdfs/synthetic-reports.pdf
-java -jar dist/dicom-pdf-0.49.0.jar create --input target/report-only-inputs --output target/viewer-test-pdfs/synthetic-reports-only.pdf
+java -jar dist/dicom-pdf-0.50.0.jar create --input target/report-inputs --output target/viewer-test-pdfs/synthetic-reports.pdf
+java -jar dist/dicom-pdf-0.50.0.jar create --input target/report-only-inputs --output target/viewer-test-pdfs/synthetic-reports-only.pdf
 python3 scripts/check_dicom_reports.py
 ```
 
