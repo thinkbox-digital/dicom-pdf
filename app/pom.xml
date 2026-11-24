@@ -540,6 +540,7 @@
                   <classpath refid="maven.test.classpath" />
                   <arg file="${project.build.directory}/synthetic-ct.pdf" />
                   <arg file="${project.build.directory}/desktop-viewer.png" />
+                  <arg file="${project.build.directory}/desktop-security-report.png" />
                 </java>
                 <java classname="digital.thinkbox.dicompdf.JarPublication" fork="true" failonerror="true">
                   <classpath>
@@ -551,6 +552,8 @@
                 </java>
                 <copy file="${project.build.directory}/desktop-viewer.png"
                       tofile="${project.basedir}/../docs/desktop-viewer.png" overwrite="true" />
+                <copy file="${project.build.directory}/desktop-security-report.png"
+                      tofile="${project.basedir}/../docs/desktop-security-report.png" overwrite="true" />
               </target>
             </configuration>
           </execution>
