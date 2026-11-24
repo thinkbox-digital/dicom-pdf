@@ -26,11 +26,12 @@ final class DesktopViewerSpecial {
                 if (imaginary != null) imaginary[i] = samples.getFloat(start + i * components * 4 + 4);
             }
             if (!transform) return new Trace(real, imaginary, domain.equals("TIME") ? "Acquisition time (ms)" : "Frequency offset (Hz)");
-            fft(real, imaginary);
+            var fftImaginary = imaginary == null ? new double[count] : imaginary;
+            fft(real, fftImaginary);
             var magnitude = new double[count];
             for (int i = 0; i < count; i++) {
                 int bin = (count / 2 - 1 - i + count) % count;
-                magnitude[i] = Math.hypot(real[bin], imaginary[bin]) / points;
+                magnitude[i] = Math.hypot(real[bin], fftImaginary[bin]) / points;
             }
             return new Trace(magnitude, null, "Frequency offset (Hz)");
         }

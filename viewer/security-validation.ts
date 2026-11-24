@@ -43,6 +43,7 @@ export async function prepareSecurity(input:SecurityInput,progress:Progress,read
     add('Other checks','PDF security discovery','UNKNOWN',input.discoveryError??'Encrypted PDF security structures are outside the supported profile.');
   }
   const signatures=facts.encrypted?[]:facts.signatures.slice().sort((a,b)=>(a.byteRange[2]!+a.byteRange[3]!)-(b.byteRange[2]!+b.byteRange[3]!));
+  const archivalProtection=input.expectedPades||signatures.some(signature=>signature.type==='DocTimeStamp');
   if(input.expectedSignature&&!input.discoveryError&&!signatures.some(signature=>signature.type==='Sig'))
     problem('CMS','Declared export signature',Error('The DICOM manifest declares an export signature, but the PDF signature is missing.'));
   const verified:VerifiedPdfSignature[]=[];
@@ -73,7 +74,7 @@ export async function prepareSecurity(input:SecurityInput,progress:Progress,read
           lastUpdate=now;lastPercent=percent;
         }
       });
-      const cms=await verifyCms(signature.contents,digest,report,timestamp);check();
+      const cms=await verifyCms(signature.contents,digest,report,{timestamp,allowBer:!archivalProtection&&!timestamp});check();
       const time=timestamp?` Recorded time: ${cms.time!.toISOString()}.`:'';
       add(category,name,'PASS',`Signature and protected bytes match through byte ${range.end.toLocaleString()}.${time} ${range.end===blob.size?'Covers the current file.':'Covers an earlier saved revision.'}`);
       covered||=range.end===blob.size;
@@ -83,7 +84,7 @@ export async function prepareSecurity(input:SecurityInput,progress:Progress,read
         requireSecurity(timestamps.length<=1,'Ambiguous signature timestamps');
         if(timestamps.length){
           requireSecurity(timestamps[0]!.values.length===1,'Ambiguous signature timestamp token');
-          const stamp=await verifyCms(new Uint8Array(timestamps[0]!.values[0]!.toBER(false)),await sha256(cms.signature),report,true);
+          const stamp=await verifyCms(new Uint8Array(timestamps[0]!.values[0]!.toBER(false)),await sha256(cms.signature),report,{timestamp:true});
           item.stamp=stamp;
           add(category,name+' timestamp imprint','PASS',`The token signed the PDF signature value. Recorded time: ${stamp.time!.toISOString()}.`);
         }
@@ -111,7 +112,7 @@ export async function prepareSecurity(input:SecurityInput,progress:Progress,read
     problem('C2PA','Declared C2PA credentials',Error('The archive’s C2PA policy is present without its credentials.'));
 
   let assessArchivalTrust:Awaited<ReturnType<typeof prepareCreatorArchive>>|undefined;
-  if(input.expectedPades||signatures.some(signature=>signature.type==='DocTimeStamp')){
+  if(archivalProtection){
     try{
       if(input.discoveryError||facts.encrypted)throw new UnsupportedSecurity('PDF security discovery is incomplete.');
       requireSecurity(signatures.length>=(files?.credentials?3:2)&&signatures[0]?.subFilter==='ETSI.CAdES.detached'&&signatures.slice(1).every(signature=>signature.type==='DocTimeStamp'),'The required CAdES export signature and archival document timestamps are missing.');

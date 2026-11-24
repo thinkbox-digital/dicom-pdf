@@ -8,7 +8,7 @@
     <relativePath>../pom.xml</relativePath>
   </parent>
   <artifactId>dicom-pdf</artifactId>
-  <version>0.54.0</version>
+  <version>0.55.0</version>
   <name>DICOM PDF pilot</name>
   <properties>
     <dcm4che.version>5.33.1</dcm4che.version>
@@ -146,6 +146,7 @@
           <include>NOTICE</include>
           <include>THIRD_PARTY_NOTICES.md</include>
           <include>third_party_licenses/**</include>
+          <include>src/main/java/eu/europa/esig/dss/pades/PAdESUtils.java</include>
         </includes>
       </resource>
     </resources>
@@ -315,6 +316,10 @@
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <filters>
                 <filter>
+                  <artifact>eu.europa.ec.joinup.sd-dss:dss-pades</artifact>
+                  <excludes><exclude>eu/europa/esig/dss/pades/PAdESUtils.class</exclude></excludes>
+                </filter>
+                <filter>
                   <artifact>*:*</artifact>
                   <excludes>
                     <exclude>META-INF/*.SF</exclude>
@@ -373,6 +378,10 @@
               <outputFile>${project.build.directory}/distribution/dicom-pdf-${project.version}-viewer.jar</outputFile>
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <filters>
+                <filter>
+                  <artifact>eu.europa.ec.joinup.sd-dss:dss-pades</artifact>
+                  <excludes><exclude>eu/europa/esig/dss/pades/PAdESUtils.class</exclude></excludes>
+                </filter>
                 <filter>
                   <artifact>*:*</artifact>
                   <excludes>
@@ -449,6 +458,10 @@
               <createDependencyReducedPom>false</createDependencyReducedPom>
               <filters>
                 <filter>
+                  <artifact>eu.europa.ec.joinup.sd-dss:dss-pades</artifact>
+                  <excludes><exclude>eu/europa/esig/dss/pades/PAdESUtils.class</exclude></excludes>
+                </filter>
+                <filter>
                   <artifact>*:*</artifact>
                   <excludes>
                     <exclude>META-INF/*.SF</exclude>
@@ -522,25 +535,18 @@
               <goal>run</goal>
             </goals>
             <configuration>
-              <target>
-                <mkdir dir="${project.build.directory}/screenshot-input" />
-                <copy file="${project.basedir}/../fixtures/expanded/ct-explicit-le-16.dcm"
-                      todir="${project.build.directory}/screenshot-input" />
-                <delete file="${project.build.directory}/synthetic-ct.pdf" />
-                <java jar="${project.build.directory}/distribution/dicom-pdf-${project.version}.jar"
-                      fork="true" failonerror="true" timeout="60000">
-                  <arg line="create --c2pa off --input" />
-                  <arg file="${project.build.directory}/screenshot-input" />
-                  <arg value="--output" />
-                  <arg file="${project.build.directory}/synthetic-ct.pdf" />
-                  <arg line="--source-role deidentified-copy" />
-                </java>
+              <target xmlns:if="ant:if" xmlns:unless="ant:unless">
+                <property name="screenshot.archive" location="${project.basedir}/../out/greg.pdf" />
+                <property name="screenshot.ca" value="" />
+                <available file="${screenshot.archive}" type="file" property="screenshot.archive.available" />
+                <echo unless:set="screenshot.archive.available">Skipping README screenshot refresh because out/greg.pdf is missing.</echo>
                 <java classname="digital.thinkbox.dicompdf.DesktopViewerScreenshot"
-                      fork="true" failonerror="true" timeout="45000">
+                      fork="true" failonerror="true" timeout="180000" if:set="screenshot.archive.available">
                   <classpath refid="maven.test.classpath" />
-                  <arg file="${project.build.directory}/synthetic-ct.pdf" />
+                  <arg file="${screenshot.archive}" />
                   <arg file="${project.build.directory}/desktop-viewer.png" />
                   <arg file="${project.build.directory}/desktop-security-report.png" />
+                  <arg value="${screenshot.ca}" />
                 </java>
                 <java classname="digital.thinkbox.dicompdf.JarPublication" fork="true" failonerror="true">
                   <classpath>
@@ -550,8 +556,16 @@
                   <arg value="${project.basedir}/../dist" />
                   <arg value="${project.version}" />
                 </java>
+                <copy file="${project.build.directory}/desktop-viewer.png"
+                      tofile="${project.basedir}/../docs/desktop-viewer.png" overwrite="true" if:set="screenshot.archive.available" />
                 <copy file="${project.build.directory}/desktop-security-report.png"
-                      tofile="${project.basedir}/../docs/desktop-security-report.png" overwrite="true" />
+                      tofile="${project.basedir}/../docs/desktop-security-report.png" overwrite="true" if:set="screenshot.archive.available" />
+                <replaceregexp file="${project.basedir}/../README.md" encoding="UTF-8"
+                               match="in desktop viewer `[0-9]+\.[0-9]+\.[0-9]+`"
+                               replace="in desktop viewer `${project.version}`" flags="g" if:set="screenshot.archive.available" />
+                <replaceregexp file="${project.basedir}/../docs/index.md" encoding="UTF-8"
+                               match="desktop-viewer\.png\?v=[0-9]+\.[0-9]+\.[0-9]+"
+                               replace="desktop-viewer.png?v=${project.version}" flags="g" if:set="screenshot.archive.available" />
               </target>
             </configuration>
           </execution>

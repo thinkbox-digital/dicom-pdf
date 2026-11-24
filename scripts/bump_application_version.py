@@ -9,7 +9,7 @@ POM = 'app/pom.xml'
 JAVA_VERSION = 'src/main/java/digital/thinkbox/dicompdf/ApplicationVersion.java'
 JAR_NAMES = ('dicom-pdf-{version}.jar', 'dicom-pdf-{version}-desktop.jar', 'dicom-pdf-{version}-viewer.jar')
 DISTRIBUTION_REFERENCES = {
-    'README.md': ('(`{version}`) embeds viewer', 'in desktop viewer `{version}`'),
+    'README.md': ('(`{version}`) embeds viewer',),
     'docs/GUIDE.md': ('Desktop version `{version}`',),
     'docs/PDF_SECURITY_LIBRARY.md': ('digital.thinkbox:dicom-pdf:{version}`',),
     'docs/SECURITY.md': (),

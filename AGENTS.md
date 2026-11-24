@@ -17,6 +17,9 @@ Put the versioned, self-contained creator, viewer and command-line JARs in
 `dist/`. Keep build intermediates and verification reports in `target/`.
 Keep only the current version of each runnable JAR in `dist/`. Remove
 superseded JARs from that directory after verifying the new distribution.
+After each code update, rebuild and verify all three runnable JARs before
+handing off the change. Use `out/greg.pdf` for both README desktop screenshots.
+When the local archive is absent, keep the existing screenshots.
 
 Every future rebuild of the runnable JARs must advance the application's minor
 version, resetting patch to zero (for example, `0.4.0` becomes `0.5.0`). The

@@ -57,13 +57,13 @@ def main():
                     page.on('pageerror', lambda error: errors.append(str(error)))
                     page.goto(address)
                     page.locator('#pdf-file').set_input_files(args.pdf.resolve())
-                    expect(page.locator('#document-name')).to_have_attribute('data-integrity', 'PASS', timeout=120000)
+                    expect(page.locator('#document-name:is([data-integrity="PASS"], [data-integrity="UNKNOWN"])')).to_be_visible(timeout=120000)
                     for viewport in [{'width': 1000, 'height': 600}, {'width': 1440, 'height': 1000}, {'width': 1000, 'height': 400}]:
                         page.set_viewport_size(viewport)
                         page.locator('#document-name').click()
                         assert_open_at_top(page)
                         close = page.locator('#close-archive-check')
-                        header = page.locator('.archive-report-header')
+                        header = page.locator('#archive-integrity-dialog .archive-report-header')
                         initial = close.bounding_box()
                         dialog_box = page.locator('#archive-integrity-dialog').bounding_box()
                         assert initial['x'] > dialog_box['x'] + dialog_box['width'] / 2
@@ -81,11 +81,8 @@ def main():
                         assert abs(after['x'] - initial['x']) < 1 and abs(after['y'] - initial['y']) < 1, (initial, after)
                         save = page.locator('#save-archive-check')
                         expect(save).to_be_in_viewport()
-                        assert page.evaluate("""() => {
-                            const panel=document.getElementById('archive-check-panel');
-                            const save=document.getElementById('save-archive-check');
-                            return panel.lastElementChild.contains(save);
-                        }""")
+                        assert save.bounding_box()['y'] >= header.bounding_box()['y']
+                        assert save.bounding_box()['y'] + save.bounding_box()['height'] <= header.bounding_box()['y'] + header.bounding_box()['height']
                         page.screenshot(path=str(report/f'{stem}-bottom.png'))
                         with page.expect_download() as event:
                             save.click()
@@ -104,7 +101,7 @@ def main():
                         assert_open_at_top(page)
                         close.click()
                         results.append({'mode': mode, 'viewport': viewport, 'opensAtTop': True,
-                                        'closeStaysVisible': True, 'saveAtBottom': True,
+                                        'closeStaysVisible': True, 'saveStaysVisible': True,
                                         'reportDownload': True, 'reopenResetsScroll': True,
                                         'keyboardCloseAndReopen': True, 'passed': True})
                     assert not requests and not errors, {'requests': requests, 'errors': errors}

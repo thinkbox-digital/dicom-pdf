@@ -2,6 +2,7 @@ package digital.thinkbox.dicompdf;
 
 import java.io.*;
 import java.nio.file.*;
+import java.nio.file.attribute.*;
 import java.security.*;
 import java.util.*;
 import javax.imageio.stream.*;
@@ -37,33 +38,70 @@ final class SourceContent {
             if(sources!=null && root.startsWith(sources.toFile().getCanonicalFile().toPath()))
                 throw new IOException("Select a scratch directory outside the source tree using DICOMPDF_SCRATCH_DIR");
             Files.createDirectories(root);
-            return Files.createTempDirectory(root,prefix);
-        } catch (IOException | InvalidPathException e) {
+            var store=Files.getFileStore(root);
+            if(store.supportsFileAttributeView(PosixFileAttributeView.class))
+                return Files.createTempDirectory(root,prefix,
+                        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+            if(!store.supportsFileAttributeView(AclFileAttributeView.class))
+                throw new IOException("Scratch filesystem does not support private permissions");
+            return privateAclDirectory(root,prefix);
+        } catch (IOException | InvalidPathException | UnsupportedOperationException | SecurityException e) {
             throw new ScratchUnavailable("Cannot create local scratch directory: "+e.getMessage(),e);
+        }
+    }
+    private static Path privateAclDirectory(Path root,String prefix)throws IOException{
+        // The provider assigns the owner. Only populate the directory after restricting its ACL.
+        Path directory=Files.createTempDirectory(root,prefix);
+        try {
+            var view=Files.getFileAttributeView(directory,AclFileAttributeView.class,LinkOption.NOFOLLOW_LINKS);
+            var owner=view.getOwner();
+            var entry=AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(owner)
+                    .setPermissions(EnumSet.allOf(AclEntryPermission.class))
+                    .setFlags(AclEntryFlag.FILE_INHERIT,AclEntryFlag.DIRECTORY_INHERIT).build();
+            view.setAcl(List.of(entry));
+            if(view.getAcl().stream().anyMatch(ace->ace.type()==AclEntryType.ALLOW&&!ace.principal().equals(owner)))
+                throw new IOException("Could not restrict the scratch directory to its owner");
+            return directory;
+        } catch (IOException | RuntimeException failure) {
+            try { Files.deleteIfExists(directory); }
+            catch(IOException | RuntimeException cleanup){failure.addSuppressed(cleanup);}
+            throw failure;
         }
     }
     InputStream open()throws IOException{return opener.open();}
     /** A complete sequential read populates the digest of this immutable content. Partial reads leave it unknown. */
     InputStream openDigesting() throws Exception {
         if (digest != null) return open();
-        var sha = MessageDigest.getInstance("SHA-256");
-        var input = open();
-        return new InputStream() {
-            long length;
-            final byte[] single = new byte[1];
-            @Override public int read() throws IOException {
-                return read(single,0,1) == -1 ? -1 : single[0] & 255;
+        return new DigestingInputStream(MessageDigest.getInstance("SHA-256"));
+    }
+
+    private final class DigestingInputStream extends InputStream {
+        private final MessageDigest sha;
+        private final InputStream input;
+        private final byte[] single = new byte[1];
+        private long length;
+
+        private DigestingInputStream(MessageDigest sha) throws IOException {
+            this.sha = sha;
+            input = open();
+        }
+
+        @Override public int read() throws IOException {
+            return read(single, 0, 1) == -1 ? -1 : single[0] & 255;
+        }
+
+        @Override public int read(byte[] bytes, int offset, int size) throws IOException {
+            int count = input.read(bytes, offset, size);
+            if (count > 0) {
+                sha.update(bytes, offset, count);
+                length = Math.addExact(length, count);
+            } else if (count == -1 && digest == null) {
+                digest = new Digest(length, HexFormat.of().formatHex(sha.digest()));
             }
-            @Override public int read(byte[] bytes,int offset,int size) throws IOException {
-                int count = input.read(bytes,offset,size);
-                if (count > 0) {
-                    sha.update(bytes,offset,count);
-                    length = Math.addExact(length,count);
-                } else if (count == -1 && digest == null) digest = new Digest(length,HexFormat.of().formatHex(sha.digest()));
-                return count;
-            }
-            @Override public void close() throws IOException { input.close(); }
-        };
+            return count;
+        }
+
+        @Override public void close() throws IOException { input.close(); }
     }
     ImageInputStream imageInput()throws IOException{
         if(file==null)return new FileCacheImageInputStream(open(),null);

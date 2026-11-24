@@ -33,13 +33,13 @@ function labelsText(ds,ancestors){
 
 /** File-provided alternatives only. No anatomy presets or source-pixel changes. */
 export function readSourceWindowPresets(root,{perFrame=null,shared=null}={}){
-  let source=root,provenance='top-level',macroPresent=false,functionalGroup=null;
-  const result={presets:[],provenance,functionExplicit:false,diagnostics:[]};
+  let source=root,macroPresent=false,functionalGroup=null;
+  const result={presets:[],provenance:'top-level',functionExplicit:false,diagnostics:[]};
   const diagnostic=code=>{if(!result.diagnostics.includes(code))result.diagnostics.push(code);};
   for(const [group,name] of [[perFrame,'per-frame-functional-groups'],[shared,'shared-functional-groups']]){
     const macro=group?.elements?.x00289132;
     if(!macro)continue;
-    result.provenance=provenance=name;macroPresent=true;
+    result.provenance=name;macroPresent=true;
     if((macro.vr&&macro.vr!=='SQ')||macro.items?.length!==1||!macro.items[0].dataSet){diagnostic('MALFORMED_FRAME_VOI_MACRO');return result;}
     source=macro.items[0].dataSet;functionalGroup=group;break;
   }

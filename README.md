@@ -45,13 +45,12 @@ During desktop creation, **Activity** reports file counts, reference-page
 generation, signing, timestamping and validation. The app also displays elapsed
 time and periodic updates while a step has no new output.
 
-To view an existing archive, run `java -jar dist/dicom-pdf-0.54.0-viewer.jar` or open
+To view an existing archive, [launch the Java desktop viewer](docs/GUIDE.md#desktop-dicom-viewer) or open
 [the standalone viewer](src/main/resources/viewer.html) in your browser and choose
 **Open PDF…**. The standalone browser viewer and Chrome
 extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
-archive checks run in the background. The current application distribution
-(`0.54.0`) embeds viewer `0.78.0` in new archives.
+archive checks run in the background. New archives embed a copy of the browser viewer.
 
 ![Java desktop DICOM viewer displaying an axial CT image with series, orientation, and window overlays](docs/desktop-viewer.png)
 

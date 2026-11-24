@@ -173,7 +173,7 @@ function srText(records,limits,signal){
   };
   function node(base,depth){
     abort(signal);if(depth>limits.maxDepth||++contentItems>limits.maxContentItems)failure('RESOURCE_LIMIT');
-    const type=value(base,'0040A040'),relationship=value(base,'0040A010'),name=code(base,'0040A043');let actual='';
+    const type=value(base,'0040A040'),relationship=value(base,'0040A010'),name=code(base,'0040A043');let actual;
     if(['TEXT','PNAME','DATE','TIME','DATETIME','UIDREF'].includes(type)){
       actual=value(base,{TEXT:'0040A160',PNAME:'0040A123',DATE:'0040A121',TIME:'0040A122',DATETIME:'0040A120',UIDREF:'0040A124'}[type])||'[value not supplied]';
     }else if(type==='CODE')actual=code(base,'0040A168')||'[coded value not supplied]';

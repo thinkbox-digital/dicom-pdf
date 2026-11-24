@@ -5,6 +5,7 @@ import {Attribute,Certificate,ContentInfo,CryptoEngine,EncapsulatedContentInfo,I
 import {fromBER,Integer,OctetString,ObjectIdentifier,Sequence,Utf8String} from 'asn1js';
 import {CMS_LIMIT,MANIFEST_SIGNATURE_LIMIT,verifyManifestSignature} from '../manifest-signature.mjs';
 import {buildArchiveVerificationPlan,verifyArchivePlan} from '../archive-verification.mjs';
+import {verifyCms} from '../security-cms.ts';
 
 const encode=text=>new TextEncoder().encode(text),now=new Date('2030-06-01T00:00:00Z');
 const crypto=new CryptoEngine({name:'synthetic-test',crypto:webcrypto,subtle:webcrypto.subtle});
@@ -42,6 +43,24 @@ for(const kind of ['RSA','EC','PSS'])test(`verifies detached ${kind} CMS, exact 
   for(const name of ['manifestSignature','signerCertificateBinding','signerCertificateValidity'])assert.equal(result.checks[name].status,'PASS',JSON.stringify(result));
   assert.equal(result.checks.certificateTrust.status,'UNKNOWN');assert.equal(result.checks.revocation.status,'UNKNOWN');
   assert.equal(result.timeBasis,'BROWSER_CLOCK_NOT_TRUSTED_TIME');
+});
+test('verifies a legacy PDF CMS envelope with indefinite lengths and DER signed attributes',async()=>{
+  const {content,cms}=await fixture();
+  const envelope=fromBER(cms).result;
+  envelope.lenBlock.isIndefiniteForm=true;
+  const signedData=envelope.valueBlock.value[1].valueBlock.value[0];
+  signedData.lenBlock.isIndefiniteForm=true;
+  const ber=new Uint8Array(envelope.toBER(false));
+  const padded=new Uint8Array(ber.length+8);
+  padded.set(ber);
+  assert.equal(ber[1],0x80);
+  const report={certificates:[]};
+  const expectedDigest=await hash(content);
+  await assert.rejects(verifyCms(padded,expectedDigest,{certificates:[]}),/Invalid ASN.1 indefinite length/);
+  const verified=await verifyCms(padded,expectedDigest,report,{allowBer:true});
+  assert.equal(verified.signed.signerInfos.length,1);
+  assert.equal(report.certificates.length,1);
+  await assert.rejects(verifyCms(padded,'00'.repeat(32),{certificates:[]},{allowBer:true}),/CMS content digest mismatch/);
 });
 test('altered manifest content and signature bytes are rejected',async()=>{
   const value=await fixture();value.content[0]^=1;

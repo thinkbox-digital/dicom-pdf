@@ -15,10 +15,23 @@ and reports.
 
 ## Desktop creator and validator
 
-You need Java 21 and a graphical desktop. Launch the desktop JAR in `dist/`:
+You need Java 21 and a graphical desktop. Download the JARs from the
+[latest GitHub release](https://github.com/thinkbox-digital/dicom-pdf/releases/latest)
+and put the ones you need in `dist/`, or [build them from source](#building-from-source).
+Keep one version of each JAR in `dist/`. These commands run from the repository
+root in a shell that expands filename patterns, such as Bash or Zsh. In
+PowerShell or Command Prompt, use the exact filename in place of each pattern.
+
+| Task | JAR filename pattern |
+| --- | --- |
+| Create and validate archives in the desktop app | `dicom-pdf-*-desktop.jar` |
+| Open archives in the Java desktop viewer | `dicom-pdf-*-viewer.jar` |
+| Create and verify archives from the command line | `dicom-pdf-*[0-9].jar` |
+
+Launch the desktop creator with this command.
 
 ```sh
-java -jar dist/dicom-pdf-0.54.0-desktop.jar
+java -jar dist/dicom-pdf-*-desktop.jar
 ```
 
 If you use IntelliJ, the **Archival DICOM Desktop** run configuration opens the
@@ -161,7 +174,9 @@ falls back to the `VERAPDF` environment variable and `verapdf` on PATH. The CLI
 
 Conversion and verification use Java's temporary directory for working copies.
 Set `DICOMPDF_SCRATCH_DIR` to choose another writable directory outside the
-originals and converted PDFs. For source builds, use a directory under `target/`.
+originals and converted PDFs. Use a filesystem with POSIX permissions or file
+ACLs so the application can keep these working copies private. For source builds,
+use a directory under `target/`.
 
 ### Read the results
 
@@ -188,8 +203,8 @@ viewing, use the Java desktop viewer or Chrome extension, or save the attached
 Launch the standalone JavaFX viewer JAR with Java 21:
 
 ```sh
-java -jar dist/dicom-pdf-0.54.0-viewer.jar
-java -jar dist/dicom-pdf-0.54.0-viewer.jar out/study.pdf
+java -jar dist/dicom-pdf-*-viewer.jar
+java -jar dist/dicom-pdf-*-viewer.jar out/study.pdf
 ```
 
 Use **Open PDF…**, Ctrl+O (Command+O on macOS), or drop an archive onto the
@@ -235,7 +250,7 @@ CA checkbox controls the public timestamp CA sources used in verification.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.78.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.80.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
@@ -483,10 +498,12 @@ library artifacts are in `target/pdf-security/`. See the
 For a local release build, use Python 3 to advance the application version and
 update distribution references. Maven's `verify` phase publishes the checked
 creator, viewer and command-line JARs to `dist/` and retires superseded JARs.
-The build captures a synthetic viewer screenshot under `target/` and
-refreshes the README’s security report screenshot. Run the release build in a graphical session, or wrap
+When `out/greg.pdf` is present, the build captures both desktop viewer screenshots
+under `target/` and refreshes the README images. Run that capture in a graphical session, or wrap
 the Maven command with `xvfb-run --auto-servernum --server-args="-screen 0 1600x1000x24"`
-on headless Linux.
+on headless Linux. Builds without the local archive keep the existing README images.
+Supply `-Dscreenshot.ca=/absolute/path/to/root-ca.pem` to load a local signer CA
+for the report capture.
 Set `VERAPDF` to the executable path to run the conformance checks below.
 
 ```sh
@@ -519,7 +536,7 @@ conversion time. To favor smaller archives, pass
 `-Dorg.apache.pdfbox.filter.deflatelevel=-1` before `-jar` to use the PDFBox
 default compression level. Both settings preserve the original attachment bytes.
 
-For command-line options, run `java -jar dist/dicom-pdf-0.54.0.jar --help`.
+For command-line options, run `java -jar dist/dicom-pdf-*[0-9].jar --help`.
 The project uses Apache-2.0 with retained [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Further reading

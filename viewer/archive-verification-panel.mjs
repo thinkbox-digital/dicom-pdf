@@ -6,7 +6,7 @@ import {readPdfSecurity,readArchivalRevisions} from './pdf-security-input.mjs';
 import {createTimestampSourceLoader,fetchCaBytes,signingCertificateUrl,supportsCertificateSitePermission,withCertificateSitePermission} from './archive-trust-sources.mjs';
 
 const labels={PASS:'Passed',FAIL:'Failed',UNKNOWN:'Incomplete',NOT_APPLICABLE:'Not applicable',CHECKING:'Checking'};
-const summaryLabels={PASS:'Integrity checks passed',FAIL:'Security checks failed',UNKNOWN:'Security checks incomplete',CHECKING:'Checking'};
+const summaryLabels={PASS:'Integrity and certificate trust checks passed',FAIL:'Security checks failed',UNKNOWN:'Security checks incomplete',CHECKING:'Checking'};
 const trustLabels={PASS:'Certificate trust passed',FAIL:'Certificate trust failed',UNKNOWN:'Certificate trust incomplete'};
 const sections=['C2PA','PAdES','C2PA + PAdES','CMS','Certificate trust','Other checks'];
 const localC2paOnly=security=>security?.c2paSignerIdentity==='LOCAL_EPHEMERAL_UNTRUSTED'&&
@@ -112,9 +112,11 @@ export function createArchiveVerificationPanel({document:doc=document,getArchive
   function appearance(state){
     name.dataset.integrity=state;
     badge.dataset.status=state;
-    badge.textContent=summaryLabels[state]??'';
-    const description=state==='PASS'?'Completed archive integrity checks passed':state==='FAIL'?'Archive security checks failed':state==='CHECKING'?'Checking archive security':state==='UNKNOWN'?'Archive security checks are incomplete':'';
     const security=result?.pdfSecurity,trust=security?.trustStatus;
+    const checksumsOnly=state==='UNKNOWN'&&result?.integrity==='PASS'&&
+      (!security||security.status==='NOT_APPLICABLE')&&!result.checks.manifestSignature;
+    const description=checksumsOnly?'Archive checksums match · no verified signature':summaryLabels[state]??'';
+    badge.textContent=description;
     const trustLabel=trust==='UNKNOWN'&&localC2paOnly(security)?'Exporter identity unverified':trustLabels[trust]??'';
     trustBadge.hidden=!trustLabel;
     trustBadge.dataset.status=trust??'NOT_APPLICABLE';
@@ -178,9 +180,9 @@ export function createArchiveVerificationPanel({document:doc=document,getArchive
         if(error instanceof TypeError){
           if(!allowSite&&supportsCertificateSitePermission()){
             urlAccess.hidden=false;
-            throw Error('Allow the extension to download from this certificate site, or use a certificate file.');
+            throw Error('Allow the extension to download from this certificate site, or use a certificate file.',{cause:error});
           }
-          throw Error('The certificate download was blocked. Use a site that allows browser downloads, or select the certificate file.');
+          throw Error('The certificate download was blocked. Use a site that allows browser downloads, or select the certificate file.',{cause:error});
         }
         throw error;
       }
@@ -240,19 +242,22 @@ export function createArchiveVerificationPanel({document:doc=document,getArchive
       if(token!==revision)return;
       const security=checked.pdfSecurity;
       const outerStatus=security?.status,trust=security?.trustStatus;
-      const states=[checked.integrity,outerStatus,checked.checks.manifestSignature?.status];
-      const state=states.includes('FAIL')?'FAIL':states.includes('UNKNOWN')?'UNKNOWN':'PASS';
+      const manifestSignature=checked.checks.manifestSignature?.status;
+      const states=[checked.integrity,outerStatus,manifestSignature,trust];
+      const verifiedSignature=outerStatus==='PASS'||manifestSignature==='PASS';
+      const state=states.includes('FAIL')?'FAIL':
+        states.includes('UNKNOWN')||!verifiedSignature||trust!=='PASS'?'UNKNOWN':'PASS';
       result={...checked,reportStatus:state};appearance(state);
       const checksumText=checked.integrity==='PASS'?'Recorded file checksums match.':checked.integrity==='FAIL'?'File integrity check failed.':'File checks completed with gaps.';
-      const securityText=outerStatus==='PASS'?'PDF integrity checks passed.':outerStatus==='FAIL'?'PDF security checks failed.':outerStatus==='UNKNOWN'?'PDF security checks are incomplete.':outerStatus==='NOT_APPLICABLE'?'No PDF export protection was found.':'';
+      const securityText=outerStatus==='PASS'?'PDF integrity checks passed.':outerStatus==='FAIL'?'PDF security checks failed.':outerStatus==='UNKNOWN'?'PDF security checks are incomplete.':outerStatus==='NOT_APPLICABLE'?'No PDF signature or C2PA export credentials were found.':!outerStatus?'PDF signature and C2PA checks were unavailable.':'';
       const signatures=security?.pdfSignaturesChecked;
-      const signatureText=signatures===1?'Checked 1 PDF signature.':signatures?`Checked ${signatures} of ${signatures} PDF signatures.`:'';
+      const signatureText=signatures===1?'Checked 1 PDF signature.':signatures?`Checked ${signatures} PDF signatures.`:'';
       const policy=security?.checks.find(check=>check.name==='Offline trust policy');
       const trustText=trust==='PASS'?'Offline certificate trust checks passed.':trust==='UNKNOWN'
         ?localC2paOnly(security)?'A one-time certificate signed this archive. The exporter’s identity is unverified.'
           :policy?.status==='UNKNOWN'?policy.detail:'Certificate trust is incomplete.'
         :trust==='FAIL'?'Certificate trust checks failed.':'';
-      status.textContent=[checksumText,signatureText,securityText,trustText].filter(Boolean).join(' ');
+      status.textContent=[checksumText,securityText,signatureText,trustText].filter(Boolean).join(' ');
       if(!pdfSecurity)onComplete(checked);
     }catch(error){
       if(token!==revision)return;

@@ -28,11 +28,13 @@ checkout is required at build or runtime.
 - EU DSS **6.5**, PDFBox backend and offline validation/policy/CMS providers:
   LGPL-2.1-or-later, copyright European Commission and contributors.
   Exact license: `third_party_licenses/EU-DSS-LGPL-2.1.txt`.
-  Source: <https://github.com/esig/dss/tree/6.5>. The modules are unmodified;
-  each redistributed DSS module's corresponding Maven source JAR is bundled
-  under `META-INF/dicom-pdf/eu-dss-sources/` in the runnable JARs. Application
-  source and `pom.xml` permit rebuilding/relinking against modified DSS modules
-  using `mvn package` (the `dss.version` property selects their version).
+  Source: <https://github.com/esig/dss/tree/6.5>. The runnable application
+  replaces the DSS 6.5 `PAdESUtils` revision scanner with a block-based
+  implementation. Its modified LGPL source is under
+  `META-INF/dicom-pdf/src/main/java/eu/europa/esig/dss/pades/PAdESUtils.java`.
+  Upstream source JARs are bundled under `META-INF/dicom-pdf/eu-dss-sources/`.
+  The application source and Maven build permit rebuilding with other DSS
+  modules. Rebase or remove the application patch when changing `dss.version`.
   Reverse engineering for debugging modifications to these LGPL components
   is permitted. No OpenPDF backend or DSS online-service module is included.
 - DSS transitive Apache Commons Lang **3.20.0**, Collections **4.6.0**, Codec

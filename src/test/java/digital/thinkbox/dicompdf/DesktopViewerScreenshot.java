@@ -1,6 +1,7 @@
 package digital.thinkbox.dicompdf;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import javafx.animation.AnimationTimer;
 import javafx.application.Application;
@@ -13,7 +14,7 @@ import javafx.stage.Stage;
 import javafx.stage.Window;
 import javax.imageio.ImageIO;
 
-/** Captures the viewer and its security report with a synthetic archive for the README. */
+/** Captures the viewer and its security report for the README. */
 public final class DesktopViewerScreenshot {
     private static Exception failure;
 
@@ -23,12 +24,19 @@ public final class DesktopViewerScreenshot {
     }
 
     public static final class Capture extends Application {
-        private final DesktopViewer viewer = new DesktopViewer();
+        private DesktopViewer viewer;
 
-        @Override public void start(Stage stage) {
+        @Override public void start(Stage stage) throws Exception {
             var args = getParameters().getRaw();
             var output = Path.of(args.get(1));
             var reportOutput = Path.of(args.get(2));
+            var trust = new DesktopViewerSecurityReport.Trust();
+            if (args.size() > 3 && !args.get(3).isBlank()) {
+                try (var input = Files.newInputStream(Path.of(args.get(3)))) {
+                    trust.certificates.addAll(DesktopViewerSecurityReport.readCAs(input));
+                }
+            }
+            viewer = new DesktopViewer(trust);
             viewer.start(stage, Path.of(args.getFirst()));
             var scene = stage.getScene();
             long started = System.nanoTime();
@@ -40,14 +48,18 @@ public final class DesktopViewerScreenshot {
 
                 @Override public void handle(long now) {
                     try {
-                        if (System.nanoTime() - started >= 30_000_000_000L)
-                            throw new IOException("Timed out opening the synthetic CT image, metadata, or security report.");
+                        if (System.nanoTime() - started >= 150_000_000_000L)
+                            throw new IOException("Timed out opening the DICOM image, metadata, or security report.");
                         if (!captured) {
                             boolean loaded = scene.getRoot().lookupAll(".footer .label").stream()
                                     .anyMatch(node -> node instanceof Label label && label.getText().contains("Original SHA-256 verified"));
                             if (!loaded) return;
                             var filename = scene.lookup(".document-name");
-                            if (filename == null || !filename.getPseudoClassStates().contains(javafx.css.PseudoClass.getPseudoClass("integrity-pass"))) return;
+                            if (filename == null || filename.isDisabled()) return;
+                            var sidebar = scene.lookup(".sidebar");
+                            if (sidebar == null || !sidebar.isVisible() || sidebar.getLayoutBounds().getWidth() < 160
+                                    || sidebar.lookupAll(".series-card").stream().noneMatch(card -> card.isVisible() && !card.getLayoutBounds().isEmpty()))
+                                throw new IOException("The left series pane must be visible in the viewer screenshot.");
                             capture(scene, output);
                             width = stage.getWidth();
                             height = stage.getHeight();
@@ -89,7 +101,7 @@ public final class DesktopViewerScreenshot {
         }
 
         @Override public void stop() {
-            viewer.stop();
+            if (viewer != null) viewer.stop();
         }
     }
 }

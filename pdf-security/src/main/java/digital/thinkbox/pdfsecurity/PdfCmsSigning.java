@@ -42,12 +42,8 @@ public final class PdfCmsSigning {
                 long[] ranges;
                 try(var reserved=Loader.loadPDF(output.toFile())){ranges=C2pa.signatureRange(reserved.getSignatureDictionaries().getFirst());}
                 C2pa.complete(output,identity,ranges,profile);
-                byte[] cms;
-                try(var first=Files.newInputStream(output);var second=Files.newInputStream(output)){
-                    second.skipNBytes(ranges[2]);
-                    var bounded=new FilterInputStream(first){long remaining=ranges[1];@Override public int read()throws IOException{if(remaining==0)return -1;int value=super.read();if(value>=0)remaining--;return value;}@Override public int read(byte[] bytes,int offset,int count)throws IOException{if(remaining==0)return -1;int n=super.read(bytes,offset,(int)Math.min(count,remaining));if(n>0)remaining-=n;return n;}};
-                    cms=CmsSigning.signPdf(new SequenceInputStream(bounded,second),identity,at,timestampClient);
-                }
+                byte[] cms=PdfRevisions.signRanges(output,ranges,
+                        content->CmsSigning.signPdf(content,identity,at,timestampClient));
                 byte[] encoded=HexFormat.of().formatHex(cms).getBytes(java.nio.charset.StandardCharsets.US_ASCII);
                 if(encoded.length>ranges[2]-ranges[1]-2)throw new IOException("PDF signature exceeds reservation");
                 try(var target=new RandomAccessFile(output.toFile(),"rw")){target.seek(ranges[1]+1);target.write(encoded);}

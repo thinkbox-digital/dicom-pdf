@@ -14,6 +14,17 @@ def run(command, **kwargs):
     return subprocess.run([str(part) for part in command], check=True, capture_output=True, **kwargs)
 
 
+def require(condition, message):
+    if not condition:
+        raise SystemExit(message)
+
+
+def extracted_file(root, name):
+    path = (root / name).resolve()
+    require(path.is_relative_to(root), f"Unsafe attachment name: {name}")
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
@@ -41,42 +52,43 @@ def main():
             parser.error("Report destination already exists. Choose a new directory.")
     checked = []
     with tempfile.TemporaryDirectory(prefix=".extracted-", dir=report) as temp:
-        extracted = Path(temp)
+        extracted = Path(temp).resolve()
         run(["pdfdetach", "-saveall", "-o", extracted, pdf])
         manifest = json.loads((extracted / "manifest.json").read_text(encoding="utf-8"))
-        assert manifest["schemaVersion"] in (1, 2), "Unknown manifest version"
+        require(manifest["schemaVersion"] in (1, 2), "Unknown manifest version")
         if manifest["schemaVersion"] == 2:
             for resource in ("inventory.txt", "profile.json", "field-mapping.json", "dicom-xmp.rng", "RECOVERY.txt", "manifest.sha256"):
-                assert (extracted / resource).is_file(), f"Missing package support file: {resource}"
-            assert (extracted / "manifest.sha256").read_text(encoding="utf-8").split()[0] == hashlib.sha256((extracted / "manifest.json").read_bytes()).hexdigest(), "Manifest checksum differs"
+                require((extracted / resource).is_file(), f"Missing package support file: {resource}")
+            checksum = (extracted / "manifest.sha256").read_text(encoding="utf-8").split()
+            manifest_hash = hashlib.sha256((extracted / "manifest.json").read_bytes()).hexdigest()
+            require(checksum and checksum[0] == manifest_hash, "Manifest checksum differs")
             for resource, expected in manifest.get("artifactSha256", {}).items():
-                assert hashlib.sha256((extracted / resource).read_bytes()).hexdigest() == expected, f"Package artifact hash differs: {resource}"
+                require(hashlib.sha256(extracted_file(extracted, resource).read_bytes()).hexdigest() == expected, f"Package artifact hash differs: {resource}")
         inventory = {str(p.relative_to(source)).replace(os.sep, "/"): p
                      for p in source.rglob("*") if p.is_file()}
-        assert len(manifest["images"]) == len(inventory), "Manifest/input count differs"
+        require(len(manifest["images"]) == len(inventory), "Manifest/input count differs")
         seen = set()
         pages = set()
         for image in manifest["images"]:
             relative = image["sourcePath"]
-            assert relative in inventory and relative not in seen, "Unexpected/repeated original"
+            require(relative in inventory and relative not in seen, "Unexpected/repeated original")
             seen.add(relative)
             # Embedded originals use flat names so ordinary attachment dialogs can save them.
-            attachment = extracted / image["attachment"]
-            assert attachment.resolve().is_relative_to(extracted.resolve()), "Unsafe attachment name"
+            attachment = extracted_file(extracted, image["attachment"])
             original = inventory[relative].read_bytes()
             payload = attachment.read_bytes()
-            assert payload == original, f"Extracted bytes differ: {relative}"
+            require(payload == original, f"Extracted bytes differ: {relative}")
             digest = hashlib.sha256(original).hexdigest()
-            assert image["sha256"] == digest, f"Manifest digest differs: {relative}"
+            require(image["sha256"] == digest, f"Manifest digest differs: {relative}")
             page = image["referencePage"]
-            assert isinstance(page, int) and page > 1 and page not in pages, "Invalid reference page"
+            require(isinstance(page, int) and page > 1 and page not in pages, "Invalid reference page")
             pages.add(page)
             if image["status"] != "rendered":
-                assert image.get("reason"), f"Unrendered source has no diagnostic: {relative}"
+                require(image.get("reason"), f"Unrendered source has no diagnostic: {relative}")
             checked.append({"sourcePath": relative, "attachment": image["attachment"],
                             "bytes": len(original), "sha256": digest,
                             "referencePage": page, "status": image["status"]})
-        assert seen == set(inventory), "Not all supplied originals were retained"
+        require(seen == set(inventory), "Not all supplied originals were retained")
         (report / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         viewer = extracted / "viewer.html"
         if viewer.exists():
@@ -87,17 +99,17 @@ def main():
     # Poppler is independent of the Java generation library and renders every page.
     run(["pdftoppm", "-r", "36", "-png", pdf, report / "page"])
     images = list(report.glob("page-*.png"))
-    assert len(images) == max(pages), "Poppler page count differs from reference mapping"
-    assert len(run(["pdftotext", pdf, "-"]).stdout.strip()) > 0, "No selectable ordinary-reader text"
+    require(len(images) == max(pages, default=0), "Poppler page count differs from reference mapping")
+    require(len(run(["pdftotext", pdf, "-"]).stdout.strip()) > 0, "No selectable ordinary-reader text")
     info = run(["pdfinfo", pdf]).stdout.decode("utf-8")
     (report / "pdfinfo.txt").write_text(info, encoding="utf-8")
     validation = run([args.verapdf, "--format", "json", "--flavour", "4f", pdf]).stdout
     (report / "verapdf.json").write_bytes(validation)
     result = json.loads(validation)
     jobs = result.get("report", result).get("jobs", [])
-    assert jobs, "veraPDF returned no validation jobs"
+    require(jobs, "veraPDF returned no validation jobs")
     checks = [job["validationResult"][0] for job in jobs]
-    assert all(check["compliant"] for check in checks), "veraPDF PDF/A-4f validation failed"
+    require(all(check["compliant"] for check in checks), "veraPDF PDF/A-4f validation failed")
     summary = {"originalCount": len(checked), "renderedCount": sum(x["status"] == "rendered" for x in checked),
                "unrenderedCount": sum(x["status"] != "rendered" for x in checked),
                "ordinaryReader": "Poppler pdftoppm + pdftotext", "pdfa4fCompliant": True,

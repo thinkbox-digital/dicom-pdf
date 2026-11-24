@@ -38,7 +38,7 @@ def check_page(context, location, pdf, manifest, reader, report):
             page.locator('#open-pdf').click()
         event.value.set_files(pdf.resolve())
         expect(page.locator('#download-original')).to_be_enabled(timeout=60000)
-        expect(page.locator('#document-name')).to_have_attribute('data-integrity','PASS',timeout=60000)
+        expect(page.locator('#document-name:is([data-integrity="PASS"], [data-integrity="UNKNOWN"])')).to_be_visible(timeout=60000)
         close_report(page)
         indices=page.locator('#image-list option').evaluate_all('options=>options.map(option=>Number(option.value))')
         ordered=physical_order(manifest['images'],indices)

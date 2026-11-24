@@ -1,6 +1,7 @@
 package digital.thinkbox.pdfsecurity;
 
 import java.io.*;
+import java.nio.file.*;
 import java.util.*;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
@@ -9,6 +10,42 @@ import org.apache.pdfbox.cos.COSName;
 /** Check signature revision boundaries; this alone does not authorize later changes. */
 final class PdfRevisions {
     private PdfRevisions(){}
+    @FunctionalInterface
+    interface Signer {
+        byte[] sign(InputStream content) throws Exception;
+    }
+
+    static byte[] signRanges(Path path,long[] range,Signer signer)throws Exception{
+        try (var first=Files.newInputStream(path);var second=Files.newInputStream(path)) {
+            second.skipNBytes(range[2]);
+            return signer.sign(new SequenceInputStream(bounded(first,range[1]),bounded(second,range[3])));
+        }
+    }
+
+    private static InputStream bounded(InputStream source,long length){
+        return new FilterInputStream(source){
+            private long remaining=length;
+
+            @Override public int read()throws IOException{
+                if(remaining==0)return -1;
+                int value=super.read();
+                if(value<0)throw new EOFException("Incomplete PDF signature range");
+                remaining--;
+                return value;
+            }
+
+            @Override public int read(byte[] bytes,int offset,int count)throws IOException{
+                Objects.checkFromIndexSize(offset,count,bytes.length);
+                if(count==0)return 0;
+                if(remaining==0)return -1;
+                int read=super.read(bytes,offset,(int)Math.min(count,remaining));
+                if(read<0)throw new EOFException("Incomplete PDF signature range");
+                remaining-=read;
+                return read;
+            }
+        };
+    }
+
     static long latestRevisionStart(PDDocument document,long size)throws IOException{
         var signatures=new ArrayList<>(document.getSignatureDictionaries());
         if(signatures.size()<2||signatures.size()>256)throw new IOException("Expected an export signature and bounded archival timestamps");

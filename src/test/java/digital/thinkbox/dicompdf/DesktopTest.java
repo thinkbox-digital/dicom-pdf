@@ -13,6 +13,18 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DesktopTest {
     @TempDir Path root;
+
+    @Test void realOnlySpectroscopyCanBeFourierTransformed() {
+        var samples = java.nio.ByteBuffer.allocate(3 * Float.BYTES);
+        samples.putFloat(1).putFloat(0).putFloat(0).flip();
+        var spectrum = new DesktopViewerSpecial.Spectrum(1, 1, 1, 3, "TIME", 1, 1000, samples);
+
+        assertNull(spectrum.trace(1, 1, 1, false).imaginary());
+        var transformed = spectrum.trace(1, 1, 1, true);
+        double magnitude = 1.0 / 3;
+        assertArrayEquals(new double[]{magnitude, magnitude, magnitude, magnitude}, transformed.real(), 1e-12);
+    }
+
     @Test void creatorUsesExistingCliAndRejectsOverwriteAndSourcesAsOutput()throws Exception{
         Path input=Files.createDirectory(root.resolve("source folder")),output=root.resolve("archive file.pdf");
         var request=request(true,input,output,"",false);

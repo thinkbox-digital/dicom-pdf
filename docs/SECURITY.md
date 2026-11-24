@@ -95,7 +95,7 @@ not modify its bytes or signature coverage. CLI no-overwrite rules are unchanged
 
 ## Desktop certificate selection
 
-Launch `java -jar dist/dicom-pdf-0.54.0-desktop.jar`. The single **Signing identity
+Launch `java -jar dist/dicom-pdf-*-desktop.jar`. The single **Signing identity
 or JSON policy** picker accepts an optional `.p12`, `.pfx` or institutional `.json`.
 For a certificate file with the passphrase field blank, click Create. The desktop prompts for its password, following the
 EA-PDF certificate/password workflow. It transfers the password only over private
@@ -154,8 +154,8 @@ Example local configuration (paths resolve relative to the configuration file):
 
 ```sh
 mvn verify
-java -jar dist/dicom-pdf-0.54.0.jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
-java -jar dist/dicom-pdf-0.54.0.jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
+java -jar dist/dicom-pdf-*[0-9].jar create --input in/example --output out/example-signed.pdf --security-config /secure/location/security.json
+java -jar dist/dicom-pdf-*[0-9].jar verify-security --input out/example-signed.pdf --sources in/example --security-config /secure/location/verify.json --output target/security-report.json
 ```
 
 For verification, supply `protection` and omit `pkcs12`, `passphraseFile` and
@@ -256,9 +256,9 @@ checks to pass. A failed or indeterminate required protection check publishes
 no PDF; no weaker substitute is produced.
 
 ```sh
-java -jar dist/dicom-pdf-0.54.0.jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
-java -jar dist/dicom-pdf-0.54.0.jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
-java -jar dist/dicom-pdf-0.54.0.jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
+java -jar dist/dicom-pdf-*[0-9].jar create --input in/example --output out/example-lta.pdf --security-config /secure/lta-signing.json
+java -jar dist/dicom-pdf-*[0-9].jar verify-security --input out/example-lta.pdf --security-config /secure/lta-verification.json --output target/lta-report.json
+java -jar dist/dicom-pdf-*[0-9].jar renew-pdf --input out/example-lta.pdf --output out/example-renewed.pdf --security-config /secure/lta-renewal.json
 ```
 
 Renewal needs `PADES_B_LTA`, the TSA URL, trust/evidence and veraPDF. Archives
@@ -358,9 +358,9 @@ signature and trust checks apply independently of transport.
 ## External evidence renewal
 
 ```sh
-java -jar dist/dicom-pdf-0.54.0.jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
-java -jar dist/dicom-pdf-0.54.0.jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
-java -jar dist/dicom-pdf-0.54.0.jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
+java -jar dist/dicom-pdf-*[0-9].jar renew-evidence --input out/example-signed.pdf --security-config /secure/location/timestamped.json --output target/evidence-1.json
+java -jar dist/dicom-pdf-*[0-9].jar renew-evidence --input out/example-signed.pdf --previous target/evidence-1.json --security-config /secure/location/timestamped.json --output target/evidence-2.json
+java -jar dist/dicom-pdf-*[0-9].jar verify-evidence --input out/example-signed.pdf --evidence target/evidence-2.json --security-config /secure/location/verify.json --output target/evidence-report.json
 ```
 
 Renewal requires a signing identity, timestamped protection, explicit trust/CRLs
@@ -425,16 +425,18 @@ Archive security checks start in the background after the first image opens.
 Click the filename to see the report or select **Save report** for the JSON
 results. The report has separate sections for archive files, C2PA, PAdES,
 combined C2PA and PAdES checks, CMS, certificate trust and archive declarations.
-Green marks passed integrity checks, red marks failures, amber marks incomplete
-checks, and blue marks work in progress. The report gives an independent verdict
-on certificate trust and shows the certificate fingerprints and verification times.
-The overview shows integrity and signer trust separately. An archive signed
-with a one-time C2PA certificate can pass the integrity checks while the
-exporter’s identity stays unverified.
+The filename turns green when integrity, signature, and certificate trust checks
+pass. Red marks failures, amber marks incomplete verification or checksum-only
+evidence, and blue marks work in progress. The report shows integrity and signer
+trust separately, with certificate fingerprints and verification times.
+A one-time C2PA certificate can establish file integrity while the exporter’s
+identity remains unverified.
 
 The browser checks original and package file hashes, inventory and exact manifest
 bytes. It verifies supported SHA-256 CMS and PAdES signatures and RFC 3161
-imprints over their exact covered bytes. For profile 0.4.0 it verifies the
+imprints over their exact covered bytes. Legacy detached CMS export signatures
+can use BER envelopes. Archival PAdES signatures and timestamps use DER.
+For profile 0.4.0 it verifies the
 COSE/JUMBF claim, restricted PDF hash exclusions, XMP instance ID and the
 `digital.thinkbox.archive` assertion over the embedded `manifest.json`.
 For DICOM B-LTA it checks the saved PDF revisions, unchanged protected objects,

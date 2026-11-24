@@ -418,10 +418,10 @@ final class DesktopViewerDocument implements AutoCloseable {
             throw new IOException("No Java decoder for transfer syntax " + syntax);
         DicomCodecs.ensureConfigured();
         if (highThroughput) DicomCodecs.configureViewerJpeg2000();
-        var reader = new DicomImageReader(new DicomImageReaderSpi());
         boolean deflated = UID.DeflatedExplicitVRLittleEndian.equals(syntax);
         boolean extended = UID.JPEGExtended12Bit.equals(syntax) && attributes.getInt(Tag.BitsAllocated, 0) == 16;
-        try (var input = deflated || extended ? null : content.imageInput();
+        try (var reader = new DicomImageReader(new DicomImageReaderSpi());
+             var input = deflated || extended ? null : content.imageInput();
              var stream = deflated ? new org.dcm4che3.io.DicomInputStream(content.open()) : null) {
             if (extended) {
                 var effective = DicomInput.effectiveAttributes(attributes, frame - 1);
@@ -441,7 +441,6 @@ final class DesktopViewerDocument implements AutoCloseable {
             return reader.read(extended ? 0 : frame - 1, parameters);
         } finally {
             CompressedDicomReader.VIEWER_JPEG_LS_COMPATIBILITY.remove();
-            reader.dispose();
         }
     }
 

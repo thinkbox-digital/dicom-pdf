@@ -151,9 +151,8 @@ final class DesktopViewerSecurityReport extends StackPane {
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             var policy = new CertificatePolicy(anchors, List.of(), checkedAt, List.of(), List.of(),
                     inventory.timestamped() && online ? trust.timestampAnchors() : Set.of());
-            var checks = new LinkedHashMap<String, SecurityReport.Check>();
             var credentials = previous == null ? C2pa.verifyViewerEvidence(archive, ArchiveC2pa.FORMAT) : previous.credentials();
-            checks.putAll(credentials.checks());
+            var checks = new LinkedHashMap<>(credentials.checks());
             if (!credentials.chain().isEmpty() && !credentials.localIdentity()) {
                 var credentialPolicy = policy;
                 try (var pdf = org.apache.pdfbox.Loader.loadPDF(archive.toFile())) {
@@ -447,7 +446,7 @@ final class DesktopViewerSecurityReport extends StackPane {
         var controls = new java.util.ArrayList<Control>();
         collectFocus(panel, controls);
         if (controls.isEmpty()) return;
-        int index = controls.indexOf(getScene().getFocusOwner());
+        int index = getScene().getFocusOwner() instanceof Control focused ? controls.indexOf(focused) : -1;
         int next = index < 0 ? (backward ? controls.size() - 1 : 0)
                 : Math.floorMod(index + (backward ? -1 : 1), controls.size());
         controls.get(next).requestFocus();
@@ -816,7 +815,7 @@ final class DesktopViewerSecurityReport extends StackPane {
         });
     }
 
-    private static Set<X509Certificate> readCAs(java.io.InputStream input) throws Exception {
+    static Set<X509Certificate> readCAs(java.io.InputStream input) throws Exception {
         byte[] bytes = input.readNBytes(MAX_CERT_BYTES + 1);
         if (bytes.length > MAX_CERT_BYTES) throw new IOException("Certificate file exceeds 1 MiB.");
         var factory = CertificateFactory.getInstance("X.509");

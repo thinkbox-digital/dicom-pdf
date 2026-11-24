@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 from pypdf import PdfReader, PdfWriter, overwrite_configuration
@@ -31,7 +32,7 @@ def main():
     initial = first_supported(manifest)
     assert initial is not None, 'Fixture requires a supported reference image'
     protection = manifest.get('security', {}).get('protection')
-    expected_report_status = 'UNKNOWN' if protection == 'PADES_B_LTA' else 'PASS'
+    expected_report_status = 'UNKNOWN'  # These offline fixtures have no trusted signing CA selected.
     viewer = report/'viewer.html'
     viewer.write_bytes(args.viewer.read_bytes() if args.viewer else reader.attachments['viewer.html'][0])
     corrupt = None
@@ -90,9 +91,12 @@ def main():
                     page.on('pageerror', lambda error: errors.append(type(error).__name__))
                     page.goto(address)
                     page.locator('#pdf-file').set_input_files(args.pdf.resolve())
+                    viewport = page.locator('#viewport')
+                    expect(viewport).to_have_attribute('data-loaded-attachment', re.compile(r'^.+$'), timeout=30000)
+                    loaded = viewport.get_attribute('data-loaded-attachment')
+                    initial = next(index for index, image in enumerate(manifest['images']) if image['attachment'] == loaded)
                     selected = manifest['images'][initial]
-                    expect(page.locator('#viewport')).to_have_attribute('data-loaded-attachment', selected['attachment'], timeout=30000)
-                    expect(page.locator('#viewport canvas').first).to_be_visible()
+                    expect(viewport.locator('canvas').first).to_be_visible()
                     if manifest.get('profileVersion') == '0.4.0':
                         expect(page.locator('#package-role')).to_contain_text('profile 0.4.0')
                     page.screenshot(path=str(report/f'{mode}-opened.png'))

@@ -2,6 +2,7 @@ package digital.thinkbox.dicompdf;
 
 import com.google.gson.JsonParser;
 import java.nio.file.*;
+import java.nio.file.attribute.*;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,6 +30,23 @@ class RuntimePathsTest {
             assertEquals("NOT_CHECKED",skipped.getAsJsonObject(key).get("status").getAsString(),key);
         assertEquals("occupied",Files.readString(work.resolve("target")));
         try(var children=Files.list(scratch)){assertEquals(0,children.count());}
+    }
+
+    @Test void scratchDirectoryIsPrivateBeforeWritingSources()throws Exception{
+        Path scratch=SourceContent.scratchDirectory("scratch-permissions-",null);
+        try{
+            if(Files.getFileStore(scratch).supportsFileAttributeView(PosixFileAttributeView.class)){
+                assertEquals(PosixFilePermissions.fromString("rwx------"),Files.getPosixFilePermissions(scratch));
+            }else{
+                var acl=Files.getFileAttributeView(scratch,AclFileAttributeView.class);
+                var owner=acl.getOwner();
+                var allowed=acl.getAcl().stream().filter(entry->entry.type()==AclEntryType.ALLOW).toList();
+                assertFalse(allowed.isEmpty());
+                assertTrue(allowed.stream().allMatch(entry->entry.principal().equals(owner)));
+            }
+        }finally{
+            Files.delete(scratch);
+        }
     }
 
     private void runCli(int expected,Path scratch,String... arguments)throws Exception{

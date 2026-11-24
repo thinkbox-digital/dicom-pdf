@@ -8,8 +8,10 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -100,7 +102,9 @@ public final class DesktopViewer extends Application {
     private Image shownImage;
     private double shownRatio;
     private int frame = 1, frames = 1;
-    private volatile long openRequest, displayRequest, pageRequest;
+    private final AtomicLong openRequest = new AtomicLong();
+    private final AtomicLong displayRequest = new AtomicLong();
+    private final AtomicLong pageRequest = new AtomicLong();
     private boolean updatingControls;
     private boolean opening;
     private boolean choosingFile;
@@ -108,10 +112,18 @@ public final class DesktopViewer extends Application {
     private boolean resetOnDisplay;
     private DesktopViewerExport exportDialog;
     private DesktopViewerSecurityReport securityDialog;
-    private final DesktopViewerSecurityReport.Trust securityTrust = new DesktopViewerSecurityReport.Trust();
+    private final DesktopViewerSecurityReport.Trust securityTrust;
     private DesktopViewerSecurityReport.Session archiveSecurity;
     private String archiveReportStatus = "";
     private double dataWidth = 315, detailsWidth = 360;
+
+    public DesktopViewer() {
+        this(new DesktopViewerSecurityReport.Trust());
+    }
+
+    DesktopViewer(DesktopViewerSecurityReport.Trust trust) {
+        securityTrust = trust;
+    }
 
     public static void main(String[] args) { launch(args); }
 
@@ -122,7 +134,8 @@ public final class DesktopViewer extends Application {
 
     void start(Stage window, Path archive) {
         stage = window;
-        var icon = new Image(DesktopViewer.class.getResourceAsStream("/icons/icon-128.png"));
+        var icon = new Image(Objects.requireNonNull(DesktopViewer.class.getResource("/icons/icon-128.png"),
+                "Missing desktop viewer icon").toExternalForm());
         viewport = new DesktopViewerCanvas(icon);
         imageArea.getChildren().setAll(viewport);
 
@@ -174,7 +187,8 @@ public final class DesktopViewer extends Application {
         var scene = new Scene(new StackPane(root, metadataBackdrop), 1450, 880);
         name.visibleProperty().bind(scene.widthProperty().greaterThanOrEqualTo(1030));
         name.managedProperty().bind(name.visibleProperty());
-        scene.getStylesheets().add(DesktopViewer.class.getResource("/desktop-viewer.css").toExternalForm());
+        scene.getStylesheets().add(Objects.requireNonNull(DesktopViewer.class.getResource("/desktop-viewer.css"),
+                "Missing desktop viewer stylesheet").toExternalForm());
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.O, KeyCombination.SHORTCUT_DOWN), this::chooseArchive);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (choosingFile || securityDialog == null || !securityDialog.isShowing()) return;
@@ -498,17 +512,17 @@ public final class DesktopViewer extends Application {
     }
 
     private void open(Path path) {
-        long request = ++openRequest;
+        long request = openRequest.incrementAndGet();
         opening = true;
         stopCine();
         status.setText("Loading " + path.getFileName() + "…");
         reader.execute(() -> {
-            if (request != openRequest) return;
+            if (request != openRequest.get()) return;
             try {
                 var opened = new DesktopViewerDocument(path);
-                if (request != openRequest) { close(opened); return; }
+                if (request != openRequest.get()) { close(opened); return; }
                 Platform.runLater(() -> {
-                    if (request != openRequest) {
+                    if (request != openRequest.get()) {
                         if (!reader.isShutdown()) reader.execute(() -> close(opened));
                         else close(opened);
                         return;
@@ -521,7 +535,7 @@ public final class DesktopViewer extends Application {
                 });
             } catch (Exception error) {
                 Platform.runLater(() -> {
-                    if (request != openRequest) return;
+                    if (request != openRequest.get()) return;
                     opening = false;
                     failure(error);
                 });
@@ -541,8 +555,8 @@ public final class DesktopViewer extends Application {
         study.getSelectionModel().clearSelection();
         study.setValue(null);
         list.getItems().clear();
-        displayRequest++;
-        pageRequest++;
+        displayRequest.incrementAndGet();
+        pageRequest.incrementAndGet();
         updateFilename(null);
         metadataButton.setDisable(true);
         shownImage = null;
@@ -668,9 +682,9 @@ public final class DesktopViewer extends Application {
 
     private void previewTechnical(String name) {
         var current = document;
-        long request = displayRequest;
+        long request = displayRequest.get();
         run(() -> current.previewTechnical(name), preview -> {
-            if (document != current || request != displayRequest) return;
+            if (document != current || request != displayRequest.get()) return;
             showAttachment(name, preview);
         });
     }
@@ -712,7 +726,7 @@ public final class DesktopViewer extends Application {
         var current = document;
         var source = entry;
         if (current == null || source == null) return;
-        long request = ++displayRequest;
+        long request = displayRequest.incrementAndGet();
         displayPending = true;
         int wantedFrame = frame;
         var window = windows.getValue() == null ? DesktopViewerDocument.INITIAL : windows.getValue();
@@ -723,15 +737,15 @@ public final class DesktopViewer extends Application {
         updatingControls = false;
         if (shownImage == null) status.setText("Opening " + basename(source) + "…");
         reader.execute(() -> {
-            if (request != displayRequest) return;
+            if (request != displayRequest.get()) return;
             try {
                 var display = current.load(source, wantedFrame, window);
                 Platform.runLater(() -> {
-                    if (request == displayRequest) display(source, display, wantedFrame, window);
+                    if (request == displayRequest.get()) display(source, display, wantedFrame, window);
                 });
             } catch (Exception error) {
                 Platform.runLater(() -> {
-                    if (request != displayRequest) return;
+                    if (request != displayRequest.get()) return;
                     displayPending = false;
                     stopCine();
                     shownImage = null;
@@ -831,7 +845,8 @@ public final class DesktopViewer extends Application {
             y.setLabel("Signal");
             boolean frequency = fourier.isSelected() || spectrum.domain().equals("FREQUENCY");
             double step = frequency ? -spectrum.width() / trace.real().length : 1000 / spectrum.width();
-            double first = frequency ? (trace.real().length / 2 - (fourier.isSelected() ? 1 : 0)) * -step : 0;
+            int centerBin = trace.real().length / 2;
+            double first = frequency ? (centerBin - (fourier.isSelected() ? 1 : 0)) * -step : 0;
             chart.getData().setAll(traceSeries(fourier.isSelected() ? "Magnitude" : "Signal", trace.real(), first, step));
             if (trace.imaginary() != null) chart.getData().add(traceSeries("Imaginary", trace.imaginary(), first, step));
         };
@@ -856,10 +871,10 @@ public final class DesktopViewer extends Application {
     private void showPage() {
         var current = document;
         if (current == null || modes.getSelectionModel().getSelectedItem() != pdfTab) return;
-        long request = ++pageRequest;
+        long request = pageRequest.incrementAndGet();
         int page = pageNumber.getValue();
-        run(() -> request == pageRequest ? current.page(page) : null, image -> {
-            if (request == pageRequest && document == current) {
+        run(() -> request == pageRequest.get() ? current.page(page) : null, image -> {
+            if (image != null && request == pageRequest.get() && document == current) {
                 reference.setImage(SwingFXUtils.toFXImage(image, null));
                 archiveSecurity.start();
             }
@@ -1229,9 +1244,9 @@ public final class DesktopViewer extends Application {
     @Override public void stop() {
         stopCine();
         if (archiveSecurity != null) archiveSecurity.cancel();
-        openRequest++;
-        displayRequest++;
-        pageRequest++;
+        openRequest.incrementAndGet();
+        displayRequest.incrementAndGet();
+        pageRequest.incrementAndGet();
         if (document != null) reader.execute(() -> close(document));
         reader.shutdown();
     }

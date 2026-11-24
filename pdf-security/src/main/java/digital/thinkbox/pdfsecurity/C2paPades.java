@@ -35,15 +35,7 @@ public final class C2paPades {
                 range=C2pa.signatureRange(document.getSignatureDictionaries().stream().max(Comparator.comparingLong(signature->{try{var r=C2pa.signatureRange(signature);return r[2]+r[3];}catch(IOException failure){throw new IllegalArgumentException(failure);}})).orElseThrow());
             }
             C2pa.complete(output,identity,range,marker,profile);
-            byte[] token;
-            try(var first=Files.newInputStream(output);var second=Files.newInputStream(output)){
-                second.skipNBytes(range[2]);
-                var bounded=new FilterInputStream(first){long remaining=range[1];
-                    @Override public int read()throws IOException{if(remaining==0)return -1;int value=super.read();if(value>=0)remaining--;return value;}
-                    @Override public int read(byte[] bytes,int offset,int count)throws IOException{if(remaining==0)return -1;int n=super.read(bytes,offset,(int)Math.min(count,remaining));if(n>0)remaining-=n;return n;}
-                };
-                token=timestamp.timestampDocument(new SequenceInputStream(bounded,second));
-            }
+            byte[] token=PdfRevisions.signRanges(output,range,timestamp::timestampDocument);
             byte[] encoded=HexFormat.of().formatHex(token).getBytes(StandardCharsets.US_ASCII);
             if(encoded.length>range[2]-range[1]-2)throw new IOException("Document timestamp exceeds reservation");
             try(var file=new RandomAccessFile(output.toFile(),"rw")){file.seek(range[1]+1);file.write(encoded);}
