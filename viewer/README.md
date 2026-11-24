@@ -1,4 +1,4 @@
-# Chrome extension viewer — 0.88.0
+# Chrome extension viewer — 0.89.0
 
 The file integrity report opens at the top on every visit. Its close × stays in
 the top-right header while the report scrolls; Save report remains at the bottom.
@@ -73,7 +73,7 @@ The node tests use the checked-in synthetic fixtures. Dependencies and compatibl
 Profile 0.2.0 adds attached `inventory.txt`, `profile.json`, `field-mapping.json`, `RECOVERY.txt` and `manifest.sha256`. Recovery and command-line verification do not depend on this web viewer. See the [guide](../docs/GUIDE.md) for `inspect`, `extract` and `verify`. Keep archival masters and approved deidentified derivatives in separate packages and directories.
 
 Load `target/chrome-extension` in Chrome or extract the files from
-`target/dicom-pdf-chrome-0.88.0.zip`.
+`target/dicom-pdf-chrome-0.89.0.zip`.
 [Extension installation instructions](extension/README.md)
 
 Archive integrity checks run automatically. The PDF worker hashes decoded
