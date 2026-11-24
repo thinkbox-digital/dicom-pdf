@@ -8,7 +8,9 @@ DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4
 
 [Download the application](https://github.com/thinkbox-digital/dicom-pdf/releases) · [Browse example archives](https://github.com/thinkbox-digital/dicom-pdf/tree/main/examples)
 
-![The standalone Java viewer displaying an axial CT image](desktop-viewer.png)
+![The standalone Java viewer displaying an axial CT image with series, orientation, and window overlays](desktop-viewer.png?v=fb5673e)
+
+[View the full-size screenshot with overlays](desktop-viewer.png?v=fb5673e).
 
 ## Open, create, or recover an archive
 
