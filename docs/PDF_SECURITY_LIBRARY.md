@@ -9,7 +9,7 @@ The Maven build has two modules:
 
 The library uses package `digital.thinkbox.pdfsecurity` and is independently
 versioned as `digital.thinkbox:pdf-security:0.1.0`. The application remains
-`digital.thinkbox:dicom-pdf:0.51.0` and consumes the library as a normal dependency.
+`digital.thinkbox:dicom-pdf:0.52.0` and consumes the library as a normal dependency.
 The [reactor parent POM](../pom.xml) is `digital.thinkbox:pdf-tools-parent:1.0.0`.
 
 The example includes two source files.
