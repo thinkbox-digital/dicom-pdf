@@ -211,7 +211,7 @@ def convert_package(package: dict, args, run: Path) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inventory", type=Path, default=Path("target/additional-samples/inventory.json"))
-    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.46.0.jar"))
+    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.47.0.jar"))
     parser.add_argument("--verapdf", default=os.environ.get("VERAPDF", "verapdf"))
     parser.add_argument("--replace", action="store_true", help="Regenerate only the additional-input-NNN.pdf outputs")
     args = parser.parse_args()

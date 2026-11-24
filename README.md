@@ -45,13 +45,13 @@ During desktop creation, **Activity** reports file counts, reference-page
 generation, signing, timestamping and validation. The app also displays elapsed
 time and periodic updates while a step has no new output.
 
-To view an existing archive, run `java -jar dist/dicom-pdf-0.46.0-viewer.jar` or open
+To view an existing archive, run `java -jar dist/dicom-pdf-0.47.0-viewer.jar` or open
 [the standalone viewer](src/main/resources/viewer.html) in your browser and choose
 **Open PDF…**. The standalone browser viewer and Chrome
 extension are built together and show their shared version in the status bar.
 The viewer can display the first image while
 archive checks run in the background. The current application distribution
-(`0.46.0`) embeds viewer `0.70.0` in new archives.
+(`0.47.0`) embeds viewer `0.71.0` in new archives.
 
 ![Java desktop DICOM viewer displaying an axial CT image](docs/desktop-viewer.png)
 
@@ -72,7 +72,7 @@ See [browser security verification](docs/SECURITY.md#viewer-results).
 
 ![Desktop archive security report displaying the larger font on a synthetic CT archive](docs/desktop-security-report.png)
 
-*Archive security report in desktop viewer `0.46.0`.*
+*Archive security report in desktop viewer `0.47.0`.*
 
 Every branch push to GitHub triggers a release build that advances both minor
 versions and resets their patch versions to zero. Before committing the version
@@ -216,7 +216,7 @@ For command-line conversion, extract the chosen ZIP into a folder under
 python3 -m zipfile -e \
   target/anonymized-in/exam.zip \
   target/anonymized-series
-java -jar dist/dicom-pdf-0.46.0.jar create \
+java -jar dist/dicom-pdf-0.47.0.jar create \
   --input target/anonymized-series \
   --output out/anonymized-test.pdf \
   --source-role deidentified-copy
