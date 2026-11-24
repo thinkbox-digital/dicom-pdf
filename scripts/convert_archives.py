@@ -220,7 +220,7 @@ def convert_archive(archive: Path, args) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archives", nargs="+", type=Path)
-    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.55.0.jar"))
+    parser.add_argument("--jar", type=Path, default=Path("dist/dicom-pdf-0.56.0.jar"))
     parser.add_argument("--verapdf", default=os.environ.get("VERAPDF", "verapdf"))
     parser.add_argument("--staging", type=Path, default=Path("target/series-inputs"))
     parser.add_argument("--output", type=Path, default=Path("out"))
