@@ -39,6 +39,24 @@ def main():
                     def size(selector):
                         return page.locator(selector).bounding_box()['width']
 
+                    def restore_overlay(selector, side):
+                        button = page.locator(selector)
+                        if mode == 'extension':
+                            expect(button).to_be_visible()
+                            arrow = button.bounding_box()
+                            reader = page.locator('.reader-panel').bounding_box()
+                            toolbar = page.locator('.reader-toolbar').bounding_box()
+                            tabs = page.locator('.view-tabs').bounding_box()
+                            assert toolbar['y'] == reader['y']
+                            assert 0 <= arrow['y'] - reader['y'] <= 12
+                            if side == 'left':
+                                assert 0 <= arrow['x'] - reader['x'] <= 12
+                                assert arrow['x'] + arrow['width'] <= tabs['x']
+                            else:
+                                assert 0 <= reader['x'] + reader['width'] - arrow['x'] - arrow['width'] <= 12
+                                assert arrow['x'] >= tabs['x'] + tabs['width']
+                        return button
+
                     def drag(handle, dx):
                         box = handle.bounding_box()
                         page.mouse.move(box['x'] + box['width'] / 2, box['y'] + 100)
@@ -69,14 +87,22 @@ def main():
                     assert abs(size('#details-panel') - initial_right) <= 2
                     drag(left, 40)
                     wanted = size('.source-panel')
+                    viewport_y = page.locator('#viewport').bounding_box()['y']
                     page.locator('#toggle-navigation').click()
                     expect(left).to_be_hidden()
-                    page.locator('#show-navigation').click()
+                    restore_data = restore_overlay('#show-navigation', 'left')
+                    if mode == 'extension':
+                        expect(restore_data).to_be_focused()
+                        assert page.locator('#viewport').bounding_box()['y'] == viewport_y
+                        restore_data.press('Enter')
+                        expect(page.locator('#toggle-navigation')).to_be_focused()
+                    else:
+                        restore_data.click()
                     expect(left).to_be_visible()
                     assert abs(size('.source-panel') - wanted) <= 2
                     page.locator('#toggle-details').click()
                     expect(right).to_be_hidden()
-                    page.locator('#show-details').click()
+                    restore_overlay('#show-details', 'right').click()
                     expect(right).to_be_visible()
                     page.locator('#show-pdf').click()
                     drag(right, -20)
@@ -89,7 +115,7 @@ def main():
                     assert size('.reader-panel') >= 180
                     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     expect(right).to_be_hidden()
-                    page.locator('#show-details').click()
+                    restore_overlay('#show-details', 'right').click()
                     expect(right).to_be_visible()
                     drag(right, 70)
                     assert 200 <= size('#details-panel') <= 456

@@ -37,10 +37,8 @@
       <select id="image-list" size="16" aria-label="Images and reports"></select>
     </aside>
     <main class="reader-panel" aria-label="Image and PDF reader">
-      <div class="reader-heading">
-        <button id="show-navigation" type="button" class="quiet pane-toggle" hidden title="Show data pane" aria-label="Show data pane" aria-expanded="false" aria-controls="navigation-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg><span class="sr-only">Show data</span></button>
-        <button id="show-details" type="button" class="quiet pane-toggle" hidden title="Show metadata pane" aria-label="Show metadata pane" aria-expanded="false" aria-controls="details-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg><span class="sr-only">Show metadata</span></button>
-      </div>
+      <button id="show-navigation" type="button" class="pane-toggle pane-restore" hidden title="Show data pane" aria-label="Show data pane" aria-expanded="false" aria-controls="navigation-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 5 7 7-7 7"/></svg></button>
+      <button id="show-details" type="button" class="pane-toggle pane-restore" hidden title="Show metadata pane" aria-label="Show metadata pane" aria-expanded="false" aria-controls="details-panel"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 5-7 7 7 7"/></svg></button>
       <div class="reader-toolbar">
         <div class="view-tabs" role="tablist" aria-label="Viewing mode">
           <button id="show-image" type="button" role="tab" aria-selected="true" aria-controls="image-view">DICOM image</button>

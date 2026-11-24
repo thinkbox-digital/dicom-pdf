@@ -120,6 +120,18 @@
 .list-cell:filled { -fx-padding: 8px; -fx-text-fill: #2c4059; }
 .list-cell:filled:selected { -fx-background-color: #e5eefb; -fx-text-fill: #194c88; }
 .tab-pane > .tab-header-area > .tab-header-background { -fx-background-color: white; }
+/* Keep the tabs clear of each restore button in the existing header row. */
+.tab-pane:show-data-pane > .tab-header-area { -fx-padding: 0.416667em 5px 0 50px; }
+.tab-pane:show-metadata-pane > .tab-header-area { -fx-padding: 0.416667em 50px 0 0.416667em; }
+.tab-pane:show-data-pane:show-metadata-pane > .tab-header-area { -fx-padding: 0.416667em 50px 0 50px; }
+.pane-restore {
+    -fx-pref-width: 34px;
+    -fx-pref-height: 32px;
+    -fx-padding: 0;
+    -fx-font-size: 23px;
+    -fx-cursor: hand;
+}
+.pane-restore:focused { -fx-border-color: #245b9b; }
 .tab { -fx-background-color: #f5f8fc; }
 .tab:selected { -fx-background-color: #e8f0fc; }
 .tab .tab-label { -fx-text-fill: #244f82; }

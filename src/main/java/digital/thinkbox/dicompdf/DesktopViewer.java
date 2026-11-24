@@ -17,8 +17,11 @@ import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.concurrent.Task;
+import javafx.css.PseudoClass;
 import javafx.embed.swing.SwingFXUtils;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
@@ -59,7 +62,8 @@ public final class DesktopViewer extends Application {
     private final StackPane metadataBackdrop = styled(new StackPane(), "selected-metadata-backdrop");
     private final SplitPane workspace = new SplitPane();
     private final HBox images = new HBox();
-    private final VBox data = new VBox(7), details = new VBox(), center = new VBox();
+    private final VBox data = new VBox(7), details = new VBox();
+    private final StackPane center = new StackPane();
     private final ListView<Manifest.Image> list = new ListView<>();
     private final ComboBox<Study> study = new ComboBox<>();
     private final javafx.collections.ObservableList<Series> studySeries = javafx.collections.FXCollections.observableArrayList();
@@ -161,7 +165,7 @@ public final class DesktopViewer extends Application {
         csv.disableProperty().bind(pdfTab.disableProperty());
         var offline = styled(new Label("Offline"), "offline");
         offline.setGraphic(styled(new javafx.scene.shape.Circle(4), "offline-dot"));
-        root.setTop(row("header", mark, name, open, restoreData, filename, offline, save, csv, restoreDetails));
+        root.setTop(row("header", mark, name, open, filename, offline, save, csv));
 
         buildData();
         buildDetails();
@@ -366,19 +370,17 @@ public final class DesktopViewer extends Application {
     }
 
     private void buildReader() {
-        restoreData.setAccessibleText("Show data pane");
-        restoreDetails.setAccessibleText("Show metadata pane");
-        restoreData.setOnAction(event -> togglePane(data, restoreData, true));
-        restoreDetails.setOnAction(event -> togglePane(details, restoreDetails, true));
-        managed(restoreData, false);
-        managed(restoreDetails, false);
-        center.getChildren().setAll(modes);
-        VBox.setVgrow(modes, Priority.ALWAYS);
+        configurePaneRestore(restoreData, data, "show-data-pane", "Show data pane", Pos.TOP_LEFT);
+        configurePaneRestore(restoreDetails, details, "show-metadata-pane", "Show metadata pane", Pos.TOP_RIGHT);
+        center.getChildren().setAll(modes, restoreData, restoreDetails);
         modes.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         sourceNameTab.setDisable(true);
         sourceNameTab.setGraphic(sourceName);
         sourceNameTab.getStyleClass().add("source-name-tab");
-        sourceName.maxWidthProperty().bind(javafx.beans.binding.Bindings.max(0, center.widthProperty().subtract(320)));
+        var leftRestoreInset = Bindings.when(restoreData.visibleProperty()).then(42).otherwise(0);
+        var rightRestoreInset = Bindings.when(restoreDetails.visibleProperty()).then(42).otherwise(0);
+        sourceName.maxWidthProperty().bind(Bindings.max(0, center.widthProperty().subtract(320)
+                .subtract(leftRestoreInset).subtract(rightRestoreInset)));
         sourceName.setMinWidth(0);
         modes.getTabs().setAll(imageTab, pdfTab, sourceNameTab);
         pdfTab.setDisable(true);
@@ -1110,6 +1112,20 @@ public final class DesktopViewer extends Application {
 
     private void failure(Exception error) {
         status.setText(error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+    }
+
+    private void configurePaneRestore(Button restore, VBox pane, String id, String label, Pos alignment) {
+        restore.setId(id);
+        restore.getStyleClass().add("pane-restore");
+        restore.setAccessibleText(label);
+        restore.setTooltip(new Tooltip(label));
+        restore.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        StackPane.setAlignment(restore, alignment);
+        StackPane.setMargin(restore, new Insets(4, 8, 0, 8));
+        var showing = PseudoClass.getPseudoClass(id);
+        restore.visibleProperty().addListener((value, before, visible) -> modes.pseudoClassStateChanged(showing, visible));
+        managed(restore, false);
+        restore.setOnAction(event -> togglePane(pane, restore, true));
     }
 
     private void togglePane(VBox pane, Button restore, boolean show) {

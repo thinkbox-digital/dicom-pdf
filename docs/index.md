@@ -33,6 +33,10 @@ DICOM PDF packages original DICOM files and metadata in a self-contained PDF/A-4
 
 ## Security and preservation
 
+![Desktop archive security report for heartscan.pdf](desktop-security-report.png)
+
+*Archive security report in desktop viewer `0.60.0`.*
+
 - [Supported signatures, timestamps, and trust checks](SECURITY.md)
 - [Signing configuration and certificate setup](SIGNING_CONFIGURATION.md)
 - [PDF/A-4f archival profile](profile/0.3.0/PROFILE.md) and [C2PA Content Credentials profile](profile/0.4.0/PROFILE.md)

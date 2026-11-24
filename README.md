@@ -65,6 +65,6 @@ shows the verification stage. Changing the CA selection for an open
 archive rechecks certificate trust using the completed integrity checks.
 See [browser security verification](docs/SECURITY.md#viewer-results).
 
-![Desktop archive security report for greg.pdf](docs/desktop-security-report.png?v=0.56.0)
+![Desktop archive security report for heartscan.pdf](docs/desktop-security-report.png?v=0.60.0)
 
-*Archive security report in desktop viewer `0.56.0`.*
+*Archive security report in desktop viewer `0.60.0`.*

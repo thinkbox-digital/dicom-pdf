@@ -210,8 +210,10 @@ java -jar dist/dicom-pdf-*-viewer.jar out/study.pdf
 Use **Open PDF…**, Ctrl+O (Command+O on macOS), or drop an archive onto the
 window. On Linux, Open and Save use the desktop portal when available.
 **Data** shows exam details and series cards, with an exam picker for multiple
-exams. Drag the dividers to resize the side panes. Use the center pane to view
-originals and PDF reference pages. The DICOM filename is beside the view tabs.
+exams. Drag the dividers to resize the side panes. After collapsing a pane,
+click **›** at the upper-left edge of the viewing area to reopen **Data**, or
+**‹** at the upper-right edge to reopen **Metadata**. Use the center pane to
+view originals and PDF reference pages. The DICOM filename is beside the view tabs.
 When you scroll, the current image stays visible until the next one is ready.
 **Info** shows the supplied series and study context, stack position,
 orientation, window values and zoom when available. The **Metadata** pane
@@ -291,7 +293,9 @@ adjusted PNG marked as a viewing copy; **Save → Original file** recovers the
 unchanged supplied file. Choose a scope under **Save → Originals ZIP**.
 
 Drag a pane divider to resize it. Double-click the divider to restore its default
-width. Narrow windows start with Metadata collapsed; use its pane button to reopen it.
+width. When a pane is collapsed, click **›** at the upper-left edge of the
+viewing area to reopen **Data**, or **‹** at the upper-right edge to reopen
+**Metadata**. Narrow windows start with Metadata collapsed.
 
 ### Adjust the image
 
