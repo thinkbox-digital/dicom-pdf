@@ -267,7 +267,7 @@ CA checkbox controls the public timestamp CA sources used in verification.
    the PDF and its first image open. PDFs opened elsewhere use normal browser
    handling; this extension does not register as the browser's PDF handler.
 
-The packaged extension is `target/dicom-pdf-chrome-0.89.0.zip`. After updating,
+The packaged extension is `target/dicom-pdf-chrome-0.90.0.zip`. After updating,
 click **Reload** on the extension page and open a new viewer tab. Opening a local
 PDF through the toolbar may require **Enable local PDF access** and Chrome's
 file-URL access setting.
