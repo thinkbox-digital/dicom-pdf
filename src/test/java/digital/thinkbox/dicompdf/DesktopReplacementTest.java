@@ -10,14 +10,42 @@ class DesktopReplacementTest {
     @TempDir Path root;
     @Test void completedReplacementKeepsTheOldFileUntilAtomicPublication()throws Exception{
         Path source=Files.createDirectory(root.resolve("inputs")),target=Files.writeString(root.resolve("archive.pdf"),"original");
-        assertNull(DesktopReplacement.inspect(source,root.resolve("new.pdf")));
         Path stage;
         try(var replacement=DesktopReplacement.inspect(source,target)){
+            assertTrue(replacement.replacing());
             stage=replacement.stage(()->false);Files.writeString(stage,"completed replacement");
             assertEquals("original",Files.readString(target));replacement.commit(()->false);
             assertTrue(replacement.committed());assertEquals("completed replacement",Files.readString(target));
         }
         assertFalse(Files.exists(stage));
+    }
+    @Test void aPdfThatAppearsDuringCreationIsPreserved()throws Exception{
+        Path source=Files.createDirectory(root.resolve("inputs")),target=root.resolve("new/archive.pdf");
+        Path stage;
+        try(var publication=DesktopReplacement.inspect(source,target)){
+            assertFalse(publication.replacing());
+            stage=publication.stage(()->false);
+            Files.writeString(stage,"completed conversion");
+            Files.writeString(stage.resolveSibling("worker-partial.pdf"),"temporary PDF");
+            Files.writeString(target,"created by another application");
+            assertThrows(IOException.class,()->publication.commit(()->false));
+            assertFalse(publication.committed());
+        }
+        assertEquals("created by another application",Files.readString(target));
+        assertFalse(Files.exists(stage.getParent()));
+    }
+    @Test void aNewArchivePublishesOnlyAfterCommit()throws Exception{
+        Path source=Files.createDirectory(root.resolve("inputs")),target=root.resolve("archive.pdf");
+        Path stage;
+        try(var publication=DesktopReplacement.inspect(source,target)){
+            stage=publication.stage(()->false);
+            Files.writeString(stage,"completed conversion");
+            assertFalse(Files.exists(target));
+            publication.commit(()->false);
+            assertTrue(publication.committed());
+        }
+        assertEquals("completed conversion",Files.readString(target));
+        assertFalse(Files.exists(stage.getParent()));
     }
     @Test void failureAndCancellationRemoveOnlyTheStagedReplacement()throws Exception{
         Path source=Files.createDirectory(root.resolve("inputs")),target=Files.writeString(root.resolve("archive.pdf"),"original");Path stage;

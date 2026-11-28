@@ -38,16 +38,19 @@ final class SourceContent {
             if(sources!=null && root.startsWith(sources.toFile().getCanonicalFile().toPath()))
                 throw new IOException("Select a scratch directory outside the source tree using DICOMPDF_SCRATCH_DIR");
             Files.createDirectories(root);
-            var store=Files.getFileStore(root);
-            if(store.supportsFileAttributeView(PosixFileAttributeView.class))
-                return Files.createTempDirectory(root,prefix,
-                        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
-            if(!store.supportsFileAttributeView(AclFileAttributeView.class))
-                throw new IOException("Scratch filesystem does not support private permissions");
-            return privateAclDirectory(root,prefix);
+            return privateDirectory(root,prefix);
         } catch (IOException | InvalidPathException | UnsupportedOperationException | SecurityException e) {
             throw new ScratchUnavailable("Cannot create local scratch directory: "+e.getMessage(),e);
         }
+    }
+    static Path privateDirectory(Path root,String prefix)throws IOException{
+        var store=Files.getFileStore(root);
+        if(store.supportsFileAttributeView(PosixFileAttributeView.class))
+            return Files.createTempDirectory(root,prefix,
+                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        if(!store.supportsFileAttributeView(AclFileAttributeView.class))
+            throw new IOException("Filesystem does not support private permissions");
+        return privateAclDirectory(root,prefix);
     }
     private static Path privateAclDirectory(Path root,String prefix)throws IOException{
         // The provider assigns the owner. Only populate the directory after restricting its ACL.

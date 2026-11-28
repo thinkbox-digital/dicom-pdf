@@ -59,8 +59,11 @@ created. A display failure does not mean an original was discarded.
 If the output already exists, choose **Replace** or **Cancel**. Replacement happens
 only after creation succeeds; a failed or cancelled conversion keeps the old PDF.
 The app will not overwrite source files.
+Publishing a new PDF requires a destination filesystem that supports hard links.
+If a file appears at the destination during conversion, Creator preserves it and
+asks you to choose another name or confirm replacement on retry.
 
-**Stop** ends the current operation. A stopped run is not a successful archive.
+**Stop** ends the current operation and removes its temporary files.
 Browse dialogs remember their folders between launches.
 
 During creation, **Activity** shows file counts, reference-page generation,
@@ -172,7 +175,10 @@ The desktop uses the veraPDF executable set in the selected JSON policy, then
 falls back to the `VERAPDF` environment variable and `verapdf` on PATH. The CLI
 `verify` command also accepts `--verapdf /path/to/verapdf`.
 
-Conversion and verification use Java's temporary directory for working copies.
+Conversion, verification, and archive viewing use Java's temporary directory
+for working copies. The viewer reuses a verified copy of the selected embedded
+original for frame navigation and removes it when you switch originals or close
+the archive.
 Set `DICOMPDF_SCRATCH_DIR` to choose another writable directory outside the
 originals and converted PDFs. Use a filesystem with POSIX permissions or file
 ACLs so the application can keep these working copies private. For source builds,

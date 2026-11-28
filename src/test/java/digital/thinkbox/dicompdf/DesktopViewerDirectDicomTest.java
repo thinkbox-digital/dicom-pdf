@@ -1,7 +1,13 @@
 package digital.thinkbox.dicompdf;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import javax.imageio.stream.FileImageInputStream;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSName;
+import org.apache.pdfbox.pdmodel.common.filespecification.PDEmbeddedFile;
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.UID;
 import org.dcm4che3.io.DicomInputStream;
@@ -58,6 +64,60 @@ class DesktopViewerDirectDicomTest {
         try (var document = DesktopViewerDocument.open(path)) {
             assertFalse(document.isArchive());
             assertEquals(1, frame(document, 1).frames());
+        }
+    }
+
+    @Test void reusesTheVerifiedSnapshotUntilTheSelectedOriginalChanges() throws Exception {
+        var input = Files.createDirectory(temporary.resolve("input"));
+        var multiframe = Files.copy(FIXTURES.resolve("sc-multiframe-gray8.dcm"), input.resolve("multiframe.dcm"));
+        Files.copy(FIXTURES.resolve("ct-explicit-le-16.dcm"), input.resolve("single.dcm"));
+        var archive = temporary.resolve("archive.pdf");
+        DicomPdf.create(input, archive, "archival-master", false);
+
+        SourceContent last;
+        try (var document = DesktopViewerDocument.open(archive);
+             var standalone = DesktopViewerDocument.open(multiframe)) {
+            var selected = document.entries.stream().filter(e -> e.sourcePath().equals("multiframe.dcm")).findFirst().orElseThrow();
+            var other = document.entries.stream().filter(e -> e != selected).findFirst().orElseThrow();
+            var first = document.load(selected, 1, DesktopViewerDocument.INITIAL);
+            var snapshot = document.checked(selected);
+            try (var stream = snapshot.imageInput()) {
+                assertInstanceOf(FileImageInputStream.class, stream);
+            }
+            assertEquals(SourceContent.file(multiframe).digest(), snapshot.digest());
+            var second = document.load(selected, 2, DesktopViewerDocument.INITIAL);
+            assertSame(snapshot, document.checked(selected));
+            assertEquals(DicomInput.previewSha256(frame(standalone, 1).image()), DicomInput.previewSha256(first.image()));
+            assertEquals(DicomInput.previewSha256(frame(standalone, 2).image()), DicomInput.previewSha256(second.image()));
+
+            document.checked(other);
+            assertSame(snapshot, document.checked(selected));
+            document.load(other, 1, DesktopViewerDocument.INITIAL);
+            assertThrows(IOException.class, () -> snapshot.open().close());
+            last = document.checked(other);
+        }
+        assertThrows(IOException.class, () -> last.open().close());
+    }
+
+    @Test void rejectsAnOriginalWithTheRightSizeAndTheWrongDigest() throws Exception {
+        var input = Files.createDirectory(temporary.resolve("input"));
+        var original = Files.copy(FIXTURES.resolve("sc-multiframe-gray8.dcm"), input.resolve("multiframe.dcm"));
+        var archive = temporary.resolve("archive.pdf");
+        DicomPdf.create(input, archive, "archival-master", false);
+        byte[] changed = Files.readAllBytes(original);
+        changed[changed.length - 1] ^= 1;
+        var modified = temporary.resolve("modified.pdf");
+        try (var pdf = Loader.loadPDF(archive.toFile())) {
+            var specification = pdf.getDocumentCatalog().getNames().getEmbeddedFiles().getNames().get("original-0001.dcm");
+            var replacement = new PDEmbeddedFile(pdf, new ByteArrayInputStream(changed), COSName.FLATE_DECODE);
+            specification.setEmbeddedFile(replacement);
+            specification.setEmbeddedFileUnicode(replacement);
+            pdf.save(modified.toFile());
+        }
+        try (var document = DesktopViewerDocument.open(modified)) {
+            var failure = assertThrows(IOException.class,
+                    () -> document.load(document.entries.getFirst(), 1, DesktopViewerDocument.INITIAL));
+            assertTrue(failure.getMessage().contains("recorded size and SHA-256"));
         }
     }
 

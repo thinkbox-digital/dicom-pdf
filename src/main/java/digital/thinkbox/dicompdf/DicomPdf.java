@@ -18,8 +18,9 @@ import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 
 /** Independent PDF/A-4f pilot: originals are inventoried before any PDF transformation. */
 public final class DicomPdf {
+    static final String STAGED_INPUTS_PROPERTY="dicompdf.desktopStagedInputs";
     private DicomPdf() {}
-    private record Source(String relative,String attachment,SourceContent content,long size,String sha256,DicomInput.Result dicom,Path preview,String previewSha256,List<ReferenceInventory.Link> links) {}
+    private record Source(String relative,String attachment,SourceContent content,Attachments.Encoded encoded,long size,String sha256,DicomInput.Result dicom,Path preview,String previewSha256,List<ReferenceInventory.Link> links) {}
     private record Capture(Path directory,List<Source> sources) implements AutoCloseable {
         @Override public void close()throws IOException{try(var paths=Files.walk(directory)){for(var path:paths.sorted(Comparator.reverseOrder()).toList())Files.deleteIfExists(path);}}
     }
@@ -109,8 +110,9 @@ public final class DicomPdf {
                             true, true, preview == null, preview == null ? null : 1,
                             dicom.displayAdjustments(), preview == null ? null : source.previewSha256);
                     images.add(image);
-                    var file = attachments.add(source.attachment, source.content, "application/dicom", "Source", "Original supplied file: " + source.relative);
+                    var file = attachments.add(source.attachment, source.encoded, source.size, "application/dicom", "Source", "Original supplied file: " + source.relative);
                     PDPage page = reference(doc, font, image, preview);
+                    if(preview!=null)Files.delete(preview);
                     COSArray pageFiles = new COSArray(); pageFiles.add(file);
                     page.getCOSObject().setItem(COSName.getPDFName("AF"), pageFiles);
                 }
@@ -196,6 +198,9 @@ public final class DicomPdf {
         Path directory=SourceContent.scratchDirectory("source-snapshot-",root);
         var sources=new ArrayList<Source>();var captured=new Capture(directory,sources);
         try{
+            // A single file or ZIP has already been copied into the desktop's private run directory.
+            String stagedInputs=System.getProperty(STAGED_INPUTS_PROPERTY);
+            boolean reuseStage=stagedInputs!=null&&root.equals(Path.of(stagedInputs));
             progress.accept("Scanning selected inputs…");
             var paths=InputFiles.collect(root);
             progress.accept("Found "+paths.size()+" supplied files; capturing originals and preparing reference images…");
@@ -210,7 +215,7 @@ public final class DicomPdf {
                         while(dispatched<paths.size() && dispatched-finished<workers){
                             final int index=dispatched++;
                             completion.submit(()->{
-                                ordered[index]=captureSource(root,paths.get(index),directory,index);
+                                ordered[index]=captureSource(root,paths.get(index),directory,index,reuseStage);
                                 return index;
                             });
                         }
@@ -234,24 +239,31 @@ public final class DicomPdf {
         int workers = Math.min(files, Math.min(requested, runtime.availableProcessors()));
         return (int) Math.max(1, Math.min(workers, workersByHeap));
     }
-    private static Source captureSource(Path root,Path path,Path directory,int index)throws Exception{
-                if(Files.isSymbolicLink(path)||!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))throw new IOException("Input is not a regular file");
-                long observed=Files.size(path);Path snapshot=directory.resolve("source-"+index+".dcm");
-                var content=SourceContent.file(path).snapshot(snapshot,Long.MAX_VALUE);var digest=content.digest();
-                if(observed!=digest.length()||!digest.equals(SourceContent.file(path).digest()))throw new IOException("Source changed while its archival snapshot was captured");
-                String relative=root.relativize(path).toString().replace(File.separatorChar,'/');
-                ArchivePath.check(relative);
-                String attachment="original-"+String.format(Locale.ROOT,"%04d",index+1)+".dcm";
-                var capture=DicomInput.capture(content);
-                var inspected=capture.preview();Path preview=null;String previewHash=null;
-                if(inspected.image()!=null){
-                    var rgb=DicomInput.rgb(inspected.image());
-                    preview=directory.resolve("preview-"+index+".png");previewHash=DicomInput.previewSha256(rgb);
-                    if(!javax.imageio.ImageIO.write(rgb,"png",preview.toFile()))throw new IOException("Could not spool the reference image");
-                    inspected.image().flush();
-                }
-                var metadata=new DicomInput.Result(inspected.fields(),null,inspected.reason(),inspected.displayAdjustments());
-                return new Source(relative,attachment,content,digest.length(),digest.sha256(),metadata,preview,previewHash,capture.links());
+    private static Source captureSource(Path root,Path path,Path directory,int index,boolean reuseStage)throws Exception{
+        if(!Files.isRegularFile(path,LinkOption.NOFOLLOW_LINKS))throw new IOException("Input is not a regular file");
+        long observed=Files.size(path);
+        var content=SourceContent.file(path);
+        if(!reuseStage){
+            content=content.snapshot(directory.resolve("source-"+index+".dcm"),Long.MAX_VALUE);
+            if(!content.digest().equals(SourceContent.file(path).digest()))
+                throw new IOException("Source changed while its archival snapshot was captured");
+        }
+        var encoded=Attachments.prepare(content,directory.resolve("original-"+index+".flate"));
+        var digest=content.digest();
+        if(observed!=digest.length())throw new IOException("Source changed while its archival snapshot was captured");
+        String relative=root.relativize(path).toString().replace(File.separatorChar,'/');
+        ArchivePath.check(relative);
+        String attachment="original-"+String.format(Locale.ROOT,"%04d",index+1)+".dcm";
+        var capture=DicomInput.capture(content);
+        var inspected=capture.preview();Path preview=null;String previewHash=null;
+        if(inspected.image()!=null){
+            var rgb=DicomInput.rgb(inspected.image());
+            preview=directory.resolve("preview-"+index+".png");previewHash=DicomInput.previewSha256(rgb);
+            if(!javax.imageio.ImageIO.write(rgb,"png",preview.toFile()))throw new IOException("Could not spool the reference image");
+            inspected.image().flush();
+        }
+        var metadata=new DicomInput.Result(inspected.fields(),null,inspected.reason(),inspected.displayAdjustments());
+        return new Source(relative,attachment,content,encoded,digest.length(),digest.sha256(),metadata,preview,previewHash,capture.links());
     }
 
     private static void summary(PDDocument doc, PDType0Font font, List<Source> sources, String sourceRole,byte[] importReceipt,String profileVersion) throws Exception {

@@ -731,7 +731,7 @@ public final class DesktopViewer extends Application {
 
     private void previewSupporting(Manifest.Image source) {
         var current = document;
-        run(() -> current.load(source, 1, DesktopViewerDocument.INITIAL), preview -> {
+        run(() -> current.previewSupporting(source), preview -> {
             if (document == current) showAttachment(basename(source), preview);
         });
     }
@@ -940,8 +940,10 @@ public final class DesktopViewer extends Application {
         cine.stop();
         if (!play.isSelected() || frames < 2) { stopCine(); return; }
         play.setText("Pause");
-        cine.getKeyFrames().setAll(new KeyFrame(Duration.seconds(1 / fps.getValue()),
-                event -> selectFrame(frame >= frames ? 1 : frame + 1)));
+        cine.getKeyFrames().setAll(new KeyFrame(Duration.seconds(1 / fps.getValue()), event -> {
+            // Let the submitted frame reach the viewport before requesting the next one.
+            if (!displayPending) selectFrame(frame >= frames ? 1 : frame + 1);
+        }));
         cine.setCycleCount(Timeline.INDEFINITE);
         cine.play();
     }

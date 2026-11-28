@@ -237,7 +237,7 @@ public final class C2pa {
                 file.write(padded);
             }
         }
-        var checks = verify(pdf,profile);
+        var checks = verifyStore(pdf,profile,null,null,offset).checks();
         if (checks.values().stream().anyMatch(c -> c.status() == SecurityReport.Status.FAIL))
             throw new IOException("C2PA final verification failed: " + checks);
     }
@@ -251,18 +251,19 @@ public final class C2pa {
     public static ViewerEvidence verifyViewerEvidence(Path path, C2paProfile profile) {
         var chain = new ArrayList<X509Certificate>();
         boolean[] local = {false};
-        var store = verifyStore(path, profile, chain, local);
+        var store = verifyStore(path, profile, chain, local, -1);
         return new ViewerEvidence(Map.copyOf(store.checks()), List.copyOf(chain), local[0]);
     }
 
     record StoreVerification(Map<String, SecurityReport.Check> checks, byte[] encoded) {}
 
     static StoreVerification verifyStore(Path path, C2paProfile profile) {
-        return verifyStore(path, profile, null, null);
+        return verifyStore(path, profile, null, null, -1);
     }
 
     private static StoreVerification verifyStore(Path path, C2paProfile profile,
-                                                 List<X509Certificate> viewerChain, boolean[] viewerLocalIdentity) {
+                                                 List<X509Certificate> viewerChain, boolean[] viewerLocalIdentity,
+                                                 long reservationOffset) {
         var result = new LinkedHashMap<String, SecurityReport.Check>();
         try (var doc = Loader.loadPDF(path.toFile())) {
             requireProfile(profile);
@@ -323,7 +324,16 @@ public final class C2pa {
             for (var range : data.get("exclusions").getValues())
                 exclusions.add(new long[]{range.get("start").AsInt64(), range.get("length").AsInt64()});
             // Never accept arbitrary exclusions that could hide changes to pages or originals.
-            long storeOffset = find(path, encoded);
+            // Finalization already located the unique reservation in this file before filling it.
+            // Bind the independently parsed attachment to those on-disk bytes before using its span.
+            long storeOffset = reservationOffset;
+            if(storeOffset<0)storeOffset=find(path,encoded);
+            else try(var file=new RandomAccessFile(path.toFile(),"r")){
+                file.seek(storeOffset);
+                byte[] stored=new byte[encoded.length];
+                file.readFully(stored);
+                if(!Arrays.equals(encoded,stored))throw new IOException("C2PA attachment differs from the finalized reservation");
+            }
             List<long[]> expected = new ArrayList<>();
             expected.add(new long[]{storeOffset, encoded.length});
             var signatures=doc.getSignatureDictionaries();

@@ -29,10 +29,10 @@ Screenshot refresh, `greg.pdf`, left series pane, security report image.
 Create PDF/A-4f, input folders and ZIPs, DICOM reference images, manifest, archive
 inspection, original-file recovery.
 
-- [JavaFX creator](../src/main/java/digital/thinkbox/dicompdf/ArchiveDesktop.java) · `main` <!-- locate: public static void main( -->
+- [Swing creator](../src/main/java/digital/thinkbox/dicompdf/ArchiveDesktop.java) · `main` <!-- locate: public static void main( -->
 - [CLI dispatch](../src/main/java/digital/thinkbox/dicompdf/Main.java) · `run` <!-- locate: int run( -->
-- [PDF creation](../src/main/java/digital/thinkbox/dicompdf/DicomPdf.java) · `create` <!-- locate: static Result create( -->
-- [DICOM input](../src/main/java/digital/thinkbox/dicompdf/DicomInput.java) · `capture` <!-- locate:  capture(Path -->
+- [PDF creation](../src/main/java/digital/thinkbox/dicompdf/DicomPdf.java) · `create` <!-- locate: public static Manifest create(Path input, Path output) -->
+- [DICOM input](../src/main/java/digital/thinkbox/dicompdf/DicomInput.java) · `capture` <!-- locate: static Capture capture(SourceContent source) -->
 - [Inspect, extract, and verify](../src/main/java/digital/thinkbox/dicompdf/PackageTools.java) · `PackageTools` <!-- locate: class PackageTools -->
 - [Conversion tests](../src/test/java/digital/thinkbox/dicompdf/DicomPdfTest.java) · `DicomPdfTest` <!-- locate: class DicomPdfTest -->
 - [Recovery tests](../src/test/java/digital/thinkbox/dicompdf/PackageToolsTest.java) · `PackageToolsTest` <!-- locate: class PackageToolsTest -->

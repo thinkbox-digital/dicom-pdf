@@ -7,6 +7,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -45,6 +46,7 @@ final class DesktopViewerDocument implements AutoCloseable {
     private final DicomInput.Dataset localDataset;
     private Manifest.Image cachedEntry;
     private SourceContent cachedOriginal;
+    private Path originalDirectory;
     private Map<String, DicomMetadataInventory.Image> metadataInventory;
     final Path path;
     final List<Manifest.Image> entries;
@@ -319,7 +321,14 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     Display load(Manifest.Image entry, int frame, Window window) throws Exception {
-        SourceContent original = checked(entry);
+        return load(selectedOriginal(entry), entry, frame, window);
+    }
+
+    Display previewSupporting(Manifest.Image entry) throws Exception {
+        return load(checked(entry), entry, 1, INITIAL);
+    }
+
+    private Display load(SourceContent original, Manifest.Image entry, int frame, Window window) throws Exception {
         DicomInput.Dataset dataset;
         try {
             dataset = isArchive() ? viewerDataset(original) : localDataset;
@@ -519,13 +528,52 @@ final class DesktopViewerDocument implements AutoCloseable {
             return localDicom;
         }
         if (cachedEntry == entry) return cachedOriginal;
-        SourceContent original = PackageTools.content(archive.requireFile(entry.attachment()));
+        return verifyOriginal(entry, PackageTools.content(archive.requireFile(entry.attachment())));
+    }
+
+    private SourceContent selectedOriginal(Manifest.Image entry) throws Exception {
+        if (!isArchive() || cachedEntry == entry) return checked(entry);
+        clearSelectedOriginal();
+        var original = PackageTools.content(archive.requireFile(entry.attachment()));
+        try {
+            var verified = verifyOriginal(entry, seekableCopy(original, entry.size()));
+            cachedEntry = entry;
+            cachedOriginal = verified;
+            return verified;
+        } catch (Exception failure) {
+            try { clearSelectedOriginal(); }
+            catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
+    private SourceContent seekableCopy(SourceContent original, long size) throws Exception {
+        try {
+            originalDirectory = SourceContent.scratchDirectory("viewer-original-", null);
+            if (Files.getFileStore(originalDirectory).getUsableSpace() >= size)
+                return original.snapshot(originalDirectory.resolve("selected.dcm"), size);
+        } catch (SourceContent.ScratchUnavailable | FileSystemException unavailable) {
+            // Use the verified stream when the local scratch filesystem cannot hold a copy.
+        }
+        clearSelectedOriginal();
+        return original;
+    }
+
+    private static SourceContent verifyOriginal(Manifest.Image entry, SourceContent original) throws Exception {
         var digest = original.digest();
         if (digest.length() != entry.size() || !digest.sha256().equalsIgnoreCase(entry.sha256()))
             throw new IOException("Original does not match its recorded size and SHA-256: " + entry.sourcePath());
-        cachedEntry = entry;
-        cachedOriginal = original;
-        return cachedOriginal;
+        return original;
+    }
+
+    private void clearSelectedOriginal() throws IOException {
+        cachedEntry = null;
+        cachedOriginal = null;
+        if (originalDirectory != null) {
+            Files.deleteIfExists(originalDirectory.resolve("selected.dcm"));
+            Files.deleteIfExists(originalDirectory);
+            originalDirectory = null;
+        }
     }
 
     void saveOriginal(Manifest.Image entry, Path destination) throws Exception {
@@ -599,6 +647,9 @@ final class DesktopViewerDocument implements AutoCloseable {
     }
 
     @Override public void close() throws IOException {
-        if (isArchive()) archive.close();
+        if (isArchive()) {
+            try { clearSelectedOriginal(); }
+            finally { archive.close(); }
+        }
     }
 }

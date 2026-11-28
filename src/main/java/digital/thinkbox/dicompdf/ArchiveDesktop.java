@@ -185,8 +185,8 @@ public final class ArchiveDesktop {
         try{
             replacement=creating&&!output.getText().isBlank()&&!source.getText().isBlank()
                     ?DesktopReplacement.inspect(Path.of(source.getText().strip()),Path.of(output.getText().strip())):null;
-        }catch(Exception error){message("Cannot replace the output PDF",error);return;}
-        if(replacement!=null&&!confirmReplacement(replacement.destination())){
+        }catch(Exception error){message("Check the output PDF",error);return;}
+        if(replacement!=null&&replacement.replacing()&&!confirmReplacement(replacement.destination())){
             status.setText("Ready");summary.setToolTipText(null);summary.setText("Replacement cancelled. The existing PDF is unchanged.");return;
         }
         final boolean promptPassword=!certificate.isBlank()&&passphrase.getText().isBlank();
@@ -200,7 +200,8 @@ public final class ArchiveDesktop {
             private String resultJson;
             @Override protected Integer doInBackground()throws Exception{
                 try(DesktopReplacement transaction=replacement){
-                    Path directory=Files.createTempDirectory("dicom-pdf-desktop-");int code;
+                    String selectedSource=creating?request.input():request.sources();
+                    Path directory=SourceContent.scratchDirectory("dicom-pdf-desktop-",selectedSource.isBlank()?null:Path.of(selectedSource.strip()));int code;
                     try{
                         if(creating){publish("Progress: Checking signing setup…\n");request.checkSigning(certificate,password);}
                         DesktopRequest effective=request;
@@ -214,8 +215,11 @@ public final class ArchiveDesktop {
                         boolean directCertificate=!certificate.isBlank()&&prepared.securityConfig().isBlank();
                         if(directCertificate)arguments.addAll(List.of("--certificate",Path.of(certificate).toAbsolutePath().toString()));
                         String entryPoint=directCertificate||!creating&&policy.isBlank()?DesktopSigningMain.class.getName():Main.class.getName();
+                        Path scratch=Files.createDirectory(directory.resolve("worker"));
+                        Path inputs=directory.resolve("inputs");
+                        Path stagedInputs=creating&&Files.isDirectory(inputs)?inputs.toRealPath():null;
                         publish(creating?"Progress: Starting archive creation…\n":"Progress: Starting archive validation…\n");
-                        code=operation.execute(DesktopProcess.javaCommand(entryPoint,arguments),this::publish,password);
+                        code=operation.execute(DesktopProcess.javaCommand(entryPoint,arguments,scratch,stagedInputs),this::publish,password,scratch);
                         if(!creating&&!operation.stopped()&&Files.isRegularFile(result)){
                             if(Files.size(result)>16*1024*1024)throw new IllegalStateException("Validator report exceeds the desktop display limit.");
                             resultJson=Files.readString(result,StandardCharsets.UTF_8);
@@ -224,7 +228,8 @@ public final class ArchiveDesktop {
                         if(password!=null)java.util.Arrays.fill(password,'\0');DesktopInputs.remove(directory);
                     }
                     if(code==0&&transaction!=null&&!operation.stopped()){
-                        publish("Replacing the confirmed output PDF…\n");transaction.commit(operation::stopped);publish("Saved "+request.output()+"\n");
+                        if(transaction.replacing())publish("Replacing the confirmed output PDF…\n");
+                        transaction.commit(operation::stopped);publish("Saved "+request.output()+"\n");
                     }
                     return code;
                 }
